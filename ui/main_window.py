@@ -2,10 +2,25 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, QRect, Qt
 from PySide6.QtGui import QIcon
-from PySide6.QtSvgWidgets import QSvgWidget
-from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QStackedWidget, QVBoxLayout, QWidget, QMainWindow
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QPushButton,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+    QGraphicsOpacityEffect,
+)
 
+from ui.components.toast_popup import ToastPopup
 from ui.pages.about_page import AboutPage
 from ui.pages.debug_page import DebugPage
 from ui.pages.devices_page import DevicesPage
@@ -15,87 +30,101 @@ from ui.pages.receive_page import ReceivePage
 from ui.pages.send_page import SendPage
 from ui.pages.settings_page import SettingsPage
 from ui.pages.transfers_page import TransfersPage
-from ui.components.toast_popup import ToastPopup
 
 
 class MainWindow(QMainWindow):
     def __init__(self, context, debug_peer: bool = False):
         super().__init__()
         self.context = context
+        self.debug_enabled = bool(self.context.settings_service.get().debug_mode or debug_peer)
         self.logo_path = Path(__file__).resolve().parents[1] / "assets" / "crocdrop_lock_logo.svg"
+        self.icon_dir = Path(__file__).resolve().parents[1] / "assets" / "icons"
         self.setWindowTitle("CrocDrop")
         self.resize(1320, 860)
+        self.setMinimumSize(1060, 720)
         if self.logo_path.exists():
             self.setWindowIcon(QIcon(str(self.logo_path)))
 
         root = QWidget()
         self.setCentralWidget(root)
-        layout = QHBoxLayout(root)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        shell_layout = QHBoxLayout(root)
+        shell_layout.setContentsMargins(0, 0, 0, 0)
+        shell_layout.setSpacing(0)
 
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(220)
+        sidebar.setFixedWidth(236)
         side_layout = QVBoxLayout(sidebar)
         side_layout.setContentsMargins(14, 14, 14, 14)
         side_layout.setSpacing(10)
 
         brand_shell = QFrame()
         brand_shell.setObjectName("BrandShell")
-        brand_layout = QHBoxLayout(brand_shell)
-        brand_layout.setContentsMargins(8, 8, 8, 8)
-        brand_layout.setSpacing(10)
+        brand_layout = QVBoxLayout(brand_shell)
+        brand_layout.setContentsMargins(10, 10, 10, 10)
+        brand_layout.setSpacing(8)
 
-        logo_widget = QSvgWidget(str(self.logo_path))
-        logo_widget.setFixedSize(52, 52)
-
-        brand_text = QVBoxLayout()
-        brand_text.setContentsMargins(0, 0, 0, 0)
-        brand_text.setSpacing(2)
-
+        text_col = QVBoxLayout()
+        text_col.setContentsMargins(0, 0, 0, 0)
+        text_col.setSpacing(2)
         brand = QLabel("CrocDrop")
         brand.setObjectName("BrandTitle")
         tagline = QLabel("Lock. Send. Done.")
         tagline.setProperty("role", "muted")
+        text_col.addWidget(brand)
+        text_col.addWidget(tagline)
 
-        brand_text.addWidget(brand)
-        brand_text.addWidget(tagline)
-        brand_text.addStretch(1)
+        badges = QHBoxLayout()
+        badges.setContentsMargins(0, 0, 0, 0)
+        badges.setSpacing(8)
+        current_profile = self.context.settings_service.get().current_profile.strip() or "Guest"
+        self.user_badge = QLabel(f"User: {current_profile}")
+        self.user_badge.setObjectName("SidebarBadge")
+        self.mode_badge = QLabel("Debug" if debug_peer else "Primary")
+        self.mode_badge.setObjectName("SidebarBadge")
+        badges.addWidget(self.user_badge)
+        badges.addWidget(self.mode_badge)
+        badges.addStretch(1)
 
-        brand_layout.addWidget(logo_widget)
-        brand_layout.addLayout(brand_text, 1)
+        brand_layout.addLayout(text_col)
+        brand_layout.addLayout(badges)
 
         mode = QLabel("Debug Peer Instance" if debug_peer else "Primary Instance")
         mode.setProperty("role", "muted")
-        mode.setStyleSheet("padding-left:8px;padding-bottom:6px;")
+        mode.setContentsMargins(8, 0, 0, 2)
 
         self.nav = QListWidget()
         self.nav.setObjectName("NavList")
-        for item in ["Home", "Send", "Receive", "Transfers", "Devices", "Logs", "Settings", "Debug", "About"]:
-            self.nav.addItem(QListWidgetItem(item))
+        self.nav.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.nav.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.nav.setUniformItemSizes(True)
+        self._build_nav_items()
 
+        # Sidebar bug fix: the previous layout added a bottom stretch, which consumed free height and kept
+        # navigation items cramped near the top. Giving nav stretch=1 lets it use full height and scroll only if needed.
         side_layout.addWidget(brand_shell)
         side_layout.addWidget(mode)
-        side_layout.addWidget(self.nav)
-        side_layout.addStretch(1)
+        side_layout.addWidget(self.nav, 1)
 
         panel = QFrame()
         panel.setObjectName("MainPanel")
         panel_layout = QVBoxLayout(panel)
         panel_layout.setContentsMargins(18, 14, 18, 14)
+        panel_layout.setSpacing(12)
 
         header = QFrame()
-        header.setObjectName("Card")
+        header.setObjectName("HeaderBar")
         header_layout = QHBoxLayout(header)
-        title = QLabel("Context")
-        title.setStyleSheet("font-size:16px;font-weight:700;")
+        header_layout.setContentsMargins(14, 10, 14, 10)
+        header_layout.setSpacing(10)
+        self.header_title = QLabel("Home")
+        self.header_title.setObjectName("HeaderTitle")
         self.context_label = QLabel("Ready")
-        self.context_label.setProperty("role", "muted")
+        self.context_label.setObjectName("HeaderStatus")
 
         check_btn = QPushButton("Check Croc")
         check_btn.clicked.connect(self.check_croc)
-        header_layout.addWidget(title)
+        header_layout.addWidget(self.header_title)
         header_layout.addStretch(1)
         header_layout.addWidget(self.context_label)
         header_layout.addWidget(check_btn)
@@ -111,33 +140,79 @@ class MainWindow(QMainWindow):
         self.debug_page = DebugPage(context)
         self.about_page = AboutPage()
 
-        for page in [
-            self.home_page,
-            self.send_page,
-            self.receive_page,
-            self.transfers_page,
-            self.devices_page,
-            self.logs_page,
-            self.settings_page,
-            self.debug_page,
-            self.about_page,
-        ]:
-            self.pages.addWidget(page)
+        self.page_map: dict[str, QWidget] = {
+            "Home": self.home_page,
+            "Send": self.send_page,
+            "Receive": self.receive_page,
+            "Transfers": self.transfers_page,
+            "Devices": self.devices_page,
+            "Logs": self.logs_page,
+            "Settings": self.settings_page,
+            "About": self.about_page,
+        }
+        if self.debug_enabled:
+            self.page_map["Debug"] = self.debug_page
+
+        for label in self._nav_labels():
+            page = self.page_map.get(label)
+            if page is not None:
+                self.pages.addWidget(page)
 
         panel_layout.addWidget(header)
         panel_layout.addWidget(self.pages, 1)
 
-        layout.addWidget(sidebar)
-        layout.addWidget(panel, 1)
+        shell_layout.addWidget(sidebar)
+        shell_layout.addWidget(panel, 1)
 
-        self.nav.currentRowChanged.connect(self.pages.setCurrentIndex)
+        self.nav.currentRowChanged.connect(self.switch_page)
         self.nav.currentRowChanged.connect(self.on_page_changed)
+        self.nav.currentRowChanged.connect(lambda _: self._sync_nav_indicator(animated=True))
+        self.nav.verticalScrollBar().valueChanged.connect(lambda _: self._sync_nav_indicator(animated=False))
+        self.nav.viewport().installEventFilter(self)
+        self._nav_indicator_anim: QPropertyAnimation | None = None
+        self._page_fade_anim: QPropertyAnimation | None = None
+        self.nav_indicator = QFrame(self.nav.viewport())
+        self.nav_indicator.setObjectName("NavIndicator")
+        self.nav_indicator.hide()
+        self.nav_indicator.lower()
         self.home_page.navigate_requested.connect(self.navigate_to)
         self.context.history_service.history_changed.connect(self.home_page.refresh)
         self.context.transfer_service.transfer_finished.connect(self.on_transfer_finished)
 
         self.nav.setCurrentRow(0)
+        self._sync_nav_indicator(animated=False)
         self.check_croc()
+
+    def eventFilter(self, watched, event):
+        if watched is self.nav.viewport() and event.type() in {QEvent.Type.Resize, QEvent.Type.Show, QEvent.Type.LayoutRequest}:
+            self._sync_nav_indicator(animated=False)
+        return super().eventFilter(watched, event)
+
+    def _nav_labels(self) -> list[str]:
+        labels = ["Home", "Send", "Receive", "Transfers", "Devices", "Logs", "Settings"]
+        if self.debug_enabled:
+            labels.append("Debug")
+        labels.append("About")
+        return labels
+
+    def _build_nav_items(self) -> None:
+        items: dict[str, str] = {
+            "Home": "nav_home.svg",
+            "Send": "nav_send.svg",
+            "Receive": "nav_receive.svg",
+            "Transfers": "nav_transfers.svg",
+            "Devices": "nav_devices.svg",
+            "Logs": "nav_logs.svg",
+            "Settings": "nav_settings.svg",
+            "Debug": "nav_debug.svg",
+            "About": "nav_about.svg",
+        }
+        for label in self._nav_labels():
+            icon_name = items[label]
+            icon_path = self.icon_dir / icon_name
+            icon = QIcon(str(icon_path)) if icon_path.exists() else QIcon()
+            item = QListWidgetItem(icon, label)
+            self.nav.addItem(item)
 
     def navigate_to(self, page_name: str):
         mapping = {self.nav.item(i).text(): i for i in range(self.nav.count())}
@@ -146,13 +221,75 @@ class MainWindow(QMainWindow):
 
     def on_page_changed(self, index: int):
         name = self.nav.item(index).text() if index >= 0 else ""
-        self.context_label.setText(name)
+        self.header_title.setText(name or "CrocDrop")
+        self.context_label.setText(name or "Ready")
         if name == "Home":
             self.home_page.refresh()
         elif name == "Transfers":
             self.transfers_page.refresh()
         elif name == "Devices":
             self.devices_page.refresh()
+
+    def switch_page(self, index: int) -> None:
+        if index < 0:
+            return
+        if self.pages.currentIndex() == index:
+            return
+        self.pages.setCurrentIndex(index)
+        self._fade_current_page()
+
+    def _fade_current_page(self) -> None:
+        widget = self.pages.currentWidget()
+        if widget is None:
+            return
+        effect = QGraphicsOpacityEffect(widget)
+        effect.setOpacity(0.0)
+        widget.setGraphicsEffect(effect)
+        self._page_fade_anim = QPropertyAnimation(effect, b"opacity", self)
+        self._page_fade_anim.setDuration(180)
+        self._page_fade_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._page_fade_anim.setStartValue(0.0)
+        self._page_fade_anim.setEndValue(1.0)
+
+        def _cleanup():
+            # Guard against rapid page switches where Qt already deleted the effect.
+            try:
+                if widget.graphicsEffect() is effect:
+                    widget.setGraphicsEffect(None)
+            except RuntimeError:
+                return
+
+        self._page_fade_anim.finished.connect(_cleanup)
+        self._page_fade_anim.start()
+
+    def _sync_nav_indicator(self, animated: bool) -> None:
+        row = self.nav.currentRow()
+        if row < 0 or row >= self.nav.count():
+            self.nav_indicator.hide()
+            return
+        item = self.nav.item(row)
+        rect = self.nav.visualItemRect(item)
+        if not rect.isValid():
+            self.nav_indicator.hide()
+            return
+
+        target = QRect(rect.x() + 4, rect.y() + 2, max(12, rect.width() - 8), max(12, rect.height() - 4))
+        self.nav_indicator.show()
+        self.nav_indicator.lower()
+
+        if not animated or self.nav_indicator.geometry().isNull():
+            self.nav_indicator.setGeometry(target)
+            return
+
+        if self._nav_indicator_anim:
+            self._nav_indicator_anim.stop()
+            self._nav_indicator_anim.deleteLater()
+        self._nav_indicator_anim = QPropertyAnimation(self.nav_indicator, b"geometry", self)
+        self._nav_indicator_anim.setDuration(180)
+        self._nav_indicator_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._nav_indicator_anim.setStartValue(self.nav_indicator.geometry())
+        self._nav_indicator_anim.setEndValue(target)
+        self._nav_indicator_anim.start()
 
     def check_croc(self):
         info = self.context.croc_manager.detect_binary()

@@ -1,22 +1,11 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QFileDialog,
-    QHBoxLayout,
-    QLabel,
-    QMessageBox,
-    QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QAbstractItemView, QFileDialog, QHBoxLayout, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 
-from ui.components.common import Card
+from ui.components.common import Card, PageHeader
 
 
 class TransfersPage(QWidget):
@@ -25,15 +14,18 @@ class TransfersPage(QWidget):
         self.context = context
 
         root = QVBoxLayout(self)
-        title = QLabel("Transfers")
-        title.setStyleSheet("font-size:20px;font-weight:700;")
-        root.addWidget(title)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(12)
+        root.addWidget(PageHeader("Transfers", "Review active, completed, failed, and canceled sessions."))
 
         card = Card("Transfer History")
         self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(["ID", "Dir", "Status", "Code", "Speed", "Started", "Ended", "Error"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.verticalHeader().setVisible(False)
         card.layout.addWidget(self.table)
 
         controls = QHBoxLayout()
@@ -41,18 +33,22 @@ class TransfersPage(QWidget):
         retry_btn = QPushButton("Retry")
         open_btn = QPushButton("Open Folder")
         copy_btn = QPushButton("Copy Details")
+        clear_btn = QPushButton("Clear History")
         controls.addWidget(refresh_btn)
         controls.addWidget(retry_btn)
         controls.addWidget(open_btn)
         controls.addWidget(copy_btn)
+        controls.addWidget(clear_btn)
+        controls.addStretch(1)
         card.layout.addLayout(controls)
 
-        root.addWidget(card)
+        root.addWidget(card, 1)
 
         refresh_btn.clicked.connect(self.refresh)
         retry_btn.clicked.connect(self.retry_selected)
         open_btn.clicked.connect(self.open_folder)
         copy_btn.clicked.connect(self.copy_details)
+        clear_btn.clicked.connect(self.clear_history)
         self.context.history_service.history_changed.connect(self.refresh)
 
         self.refresh()
@@ -105,3 +101,15 @@ class TransfersPage(QWidget):
         from PySide6.QtGui import QGuiApplication
 
         QGuiApplication.clipboard().setText(json.dumps(rec.to_dict(), indent=2))
+
+    def clear_history(self):
+        answer = QMessageBox.question(
+            self,
+            "Clear History",
+            "Remove all transfer history entries?\n\nThis does not delete transferred files.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        self.context.history_service.clear()

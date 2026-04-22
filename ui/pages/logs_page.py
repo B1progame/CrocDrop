@@ -1,10 +1,10 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget, QComboBox
+from PySide6.QtWidgets import QComboBox, QFileDialog, QHBoxLayout, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
 
-from ui.components.common import Card
+from ui.components.common import Card, PageHeader
 
 
 class LogsPage(QWidget):
@@ -14,9 +14,9 @@ class LogsPage(QWidget):
         self.entries: list[dict] = []
 
         root = QVBoxLayout(self)
-        title = QLabel("Logs")
-        title.setStyleSheet("font-size:20px;font-weight:700;")
-        root.addWidget(title)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(12)
+        root.addWidget(PageHeader("Logs", "Inspect app events and export diagnostics quickly."))
 
         card = Card("Live Logs")
         controls = QHBoxLayout()
@@ -27,14 +27,14 @@ class LogsPage(QWidget):
         controls.addWidget(self.level_filter)
         controls.addWidget(export_btn)
         controls.addWidget(clear_btn)
+        controls.addStretch(1)
         card.layout.addLayout(controls)
 
-        self.output = QTextEdit()
+        self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
         self.output.document().setMaximumBlockCount(1500)
         card.layout.addWidget(self.output)
-
-        root.addWidget(card)
+        root.addWidget(card, 1)
 
         self.context.log_service.log_emitted.connect(self.on_log)
         self.level_filter.currentTextChanged.connect(self.redraw)
@@ -50,7 +50,7 @@ class LogsPage(QWidget):
         if level != "all" and entry["level"] != level:
             return
         line = f"{entry['timestamp']} | {entry['level'].upper()} | {entry['source']} | {entry['message']}"
-        self.output.append(line)
+        self.output.appendPlainText(line)
         self.output.verticalScrollBar().setValue(self.output.verticalScrollBar().maximum())
 
     def redraw(self):

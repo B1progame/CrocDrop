@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QComboBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QVBoxLayout, QWidget
 
-from ui.components.common import Card
+from ui.components.common import Card, PageHeader
 
 
 class ReceivePage(QWidget):
@@ -18,9 +18,9 @@ class ReceivePage(QWidget):
         self.output_flush_timer.timeout.connect(self.flush_output)
 
         root = QVBoxLayout(self)
-        title = QLabel("Receive")
-        title.setStyleSheet("font-size:20px;font-weight:700;")
-        root.addWidget(title)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(12)
+        root.addWidget(PageHeader("Receive", "Paste a code, choose destination, and monitor inbound transfer progress."))
 
         form = Card("Receive Setup")
         self.code_input = QLineEdit()
@@ -40,8 +40,11 @@ class ReceivePage(QWidget):
         row2.addWidget(self.dest_input)
         row2.addWidget(browse_btn)
 
+        action_row = QHBoxLayout()
         start_btn = QPushButton("Start Receive")
         start_btn.setObjectName("PrimaryButton")
+        action_row.addWidget(start_btn)
+        action_row.addStretch(1)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
@@ -54,7 +57,8 @@ class ReceivePage(QWidget):
         form.layout.addLayout(row2)
         form.layout.addWidget(QLabel("Collision Handling"))
         form.layout.addWidget(self.collision)
-        form.layout.addWidget(start_btn)
+        form.layout.addLayout(action_row)
+        form.layout.addWidget(self.progress)
 
         logs = Card("Live Output")
         self.output = QPlainTextEdit()
@@ -63,8 +67,7 @@ class ReceivePage(QWidget):
         logs.layout.addWidget(self.output)
 
         root.addWidget(form)
-        root.addWidget(self.progress)
-        root.addWidget(logs)
+        root.addWidget(logs, 1)
 
         browse_btn.clicked.connect(self.browse_destination)
         start_btn.clicked.connect(self.start_receive)

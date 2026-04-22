@@ -3,7 +3,7 @@
 import subprocess
 import threading
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
@@ -68,10 +68,17 @@ class ActiveTransfer:
     runtime: TransferRuntime
 
 
+@dataclass(slots=True)
+class ReservedCode:
+    code_phrase: str
+    expires_at: datetime
+
+
 class TransferService(QObject):
     transfer_updated = Signal(str)
     transfer_output = Signal(str, str)
     transfer_finished = Signal(str, str)
+    next_code_ready = Signal(str, str, str)  # transfer_id, code, expires_at_iso
 
     def __init__(self, croc_manager, history_service, settings_service, log_service):
         super().__init__()
@@ -81,17 +88,22 @@ class TransferService(QObject):
         self.log = log_service.get_logger("transfer")
         self.parser = TransferOutputParser()
         self.active: dict[str, ActiveTransfer] = {}
+        self._reserved_codes: dict[str, ReservedCode] = {}
 
     def start_send(self, paths: list[str], code_phrase: str = "", direction: str = "send") -> TransferRecord:
+        active_profile = (self.settings_service.get().current_profile or "guest").strip() or "guest"
         if not code_phrase.strip():
-            active_profile = self.settings_service.get().current_profile or "guest"
-            code_phrase = generate_code_phrase(active_profile)
+            reserved = self._take_reserved_code(active_profile)
+            code_phrase = reserved if reserved else generate_code_phrase(active_profile)
         process = self.croc_manager.launch_send(paths=paths, code_phrase=code_phrase)
         record = TransferRecord(direction=direction, source_paths=paths, relay=self.settings_service.get().relay_mode)
         record.code_phrase = code_phrase
         record.croc_version = self.croc_manager.get_version(Path(self.croc_manager.detect_binary().path))
         self.history_service.add(record)
         self.history_service.mark_started(record)
+
+        next_code, expires_at = self._reserve_next_code(active_profile)
+        self.next_code_ready.emit(record.transfer_id, next_code, expires_at.isoformat())
 
         runtime = TransferRuntime(record.transfer_id, process, self.parser)
         self._wire_runtime(record, runtime)
@@ -173,6 +185,7 @@ class TransferService(QObject):
             done_line = "[system] DONE"
             record.output_excerpt.append(done_line)
             self.transfer_output.emit(transfer_id, done_line)
+            self._auto_remember_device(record)
         self.history_service.mark_finished(record, status=status, error=record.error_message)
         self.transfer_finished.emit(transfer_id, status)
         self.transfer_updated.emit(transfer_id)
@@ -202,3 +215,39 @@ class TransferService(QObject):
                 direction=record.direction,
             )
         return None
+
+    def _take_reserved_code(self, profile_name: str) -> str:
+        self._prune_reserved_codes()
+        reserved = self._reserved_codes.pop(profile_name, None)
+        if not reserved:
+            return ""
+        if reserved.expires_at <= datetime.now(timezone.utc):
+            return ""
+        return reserved.code_phrase
+
+    def _reserve_next_code(self, profile_name: str) -> tuple[str, datetime]:
+        self._prune_reserved_codes()
+        code = generate_code_phrase(profile_name)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
+        self._reserved_codes[profile_name] = ReservedCode(code_phrase=code, expires_at=expires_at)
+        return code, expires_at
+
+    def _prune_reserved_codes(self) -> None:
+        now = datetime.now(timezone.utc)
+        expired = [profile for profile, reserved in self._reserved_codes.items() if reserved.expires_at <= now]
+        for profile in expired:
+            self._reserved_codes.pop(profile, None)
+
+    def _auto_remember_device(self, record: TransferRecord) -> None:
+        code = (record.code_phrase or "").strip()
+        if not code:
+            return
+        settings = self.settings_service.get()
+        if code in settings.trusted_devices:
+            return
+        peer_label = code.rsplit("-", 1)[-1].strip() if "-" in code else "peer"
+        if not peer_label:
+            peer_label = "peer"
+        # App-level convenience only: this alias is inferred from code text, not cryptographic identity.
+        settings.trusted_devices[code] = f"Auto: {peer_label}"
+        self.settings_service.save(settings)

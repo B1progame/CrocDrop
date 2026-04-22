@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QSizePolicy,
     QVBoxLayout,
 )
 
@@ -22,8 +23,34 @@ class Card(QFrame):
         self.layout.setSpacing(8)
         if title:
             label = QLabel(title)
-            label.setStyleSheet("font-weight:700;font-size:14px;")
+            label.setObjectName("CardTitle")
             self.layout.addWidget(label)
+
+
+class PageHeader(QFrame):
+    def __init__(self, title: str, subtitle: str = ""):
+        super().__init__()
+        self.setObjectName("PageHeader")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(4)
+
+        self.title_label = QLabel(title)
+        self.title_label.setObjectName("PageTitle")
+        self.subtitle_label = QLabel(subtitle)
+        self.subtitle_label.setObjectName("PageSubtitle")
+        self.subtitle_label.setProperty("role", "muted")
+        self.subtitle_label.setVisible(bool(subtitle))
+
+        layout.addWidget(self.title_label)
+        layout.addWidget(self.subtitle_label)
+
+    def set_title(self, title: str) -> None:
+        self.title_label.setText(title)
+
+    def set_subtitle(self, subtitle: str) -> None:
+        self.subtitle_label.setText(subtitle)
+        self.subtitle_label.setVisible(bool(subtitle))
 
 
 class DropList(QListWidget):
@@ -33,6 +60,8 @@ class DropList(QListWidget):
         super().__init__()
         self.setAcceptDrops(True)
         self.setSelectionMode(QListWidget.ExtendedSelection)
+        self.setAlternatingRowColors(True)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():

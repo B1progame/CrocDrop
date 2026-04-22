@@ -1,6 +1,6 @@
 ﻿from __future__ import annotations
 
-import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -40,10 +40,18 @@ class DebugService(QObject):
     def generate_dummy_file(self, directory: Path, size_mb: int = 10) -> Path:
         directory.mkdir(parents=True, exist_ok=True)
         file_path = directory / f"dummy_{size_mb}mb.bin"
-        chunk = os.urandom(1024 * 1024)
+        size_bytes = int(size_mb) * 1024 * 1024
+        free_bytes = shutil.disk_usage(directory).free
+        if size_bytes > free_bytes:
+            raise RuntimeError(
+                f"Not enough free disk space. Needed ~{size_mb} MB, available ~{free_bytes // (1024 * 1024)} MB."
+            )
+
+        # Use sparse/truncate creation for large files so >1GB remains fast and reliable.
         with file_path.open("wb") as f:
-            for _ in range(size_mb):
-                f.write(chunk)
+            if size_bytes > 0:
+                f.seek(size_bytes - 1)
+                f.write(b"\0")
         self.log.info("Dummy file generated: %s", file_path)
         return file_path
 

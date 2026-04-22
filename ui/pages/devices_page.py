@@ -1,8 +1,8 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QListWidget, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QListWidget, QPushButton, QVBoxLayout, QWidget
 
-from ui.components.common import Card
+from ui.components.common import Card, PageHeader
 
 
 class DevicesPage(QWidget):
@@ -11,32 +11,33 @@ class DevicesPage(QWidget):
         self.context = context
 
         root = QVBoxLayout(self)
-        title = QLabel("Devices")
-        title.setStyleSheet("font-size:20px;font-weight:700;")
-        root.addWidget(title)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(12)
+        root.addWidget(PageHeader("Devices", "Manage app-level remembered peers from transfer codes (not a cryptographic identity guarantee)."))
 
-        card = Card("Remembered Aliases")
+        card = Card("Friends / Remembered Peers")
         self.list = QListWidget()
         self.code_input = QLineEdit()
-        self.code_input.setPlaceholderText("Code/session label")
+        self.code_input.setPlaceholderText("Transfer code / session label")
         self.alias_input = QLineEdit()
-        self.alias_input.setPlaceholderText("Friendly alias")
+        self.alias_input.setPlaceholderText("Friend name / alias")
 
         actions = QHBoxLayout()
-        save_btn = QPushButton("Save Alias")
-        remove_btn = QPushButton("Remove Selected")
+        save_btn = QPushButton("Add / Save Friend")
+        remove_btn = QPushButton("Remove Friend")
         actions.addWidget(save_btn)
         actions.addWidget(remove_btn)
+        actions.addStretch(1)
 
         card.layout.addWidget(self.list)
         card.layout.addWidget(self.code_input)
         card.layout.addWidget(self.alias_input)
         card.layout.addLayout(actions)
-        root.addWidget(card)
-        root.addStretch(1)
+        root.addWidget(card, 1)
 
         save_btn.clicked.connect(self.save_alias)
         remove_btn.clicked.connect(self.remove_selected)
+        self.context.transfer_service.transfer_finished.connect(lambda _tid, _status: self.refresh())
         self.refresh()
 
     def refresh(self):

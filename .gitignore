@@ -1,5 +1,18 @@
-/.venv
-/.vscode
-/DEVELOPER_NOTES.md
+.venv/
+.vscode/
+
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Build / packaging artifacts
+build/
+dist/
+*.spec
+installer_output/
+*.exe
+
+# Logs and local state
+*.log
+*.tmp
