@@ -21,6 +21,8 @@ class AboutPage(QWidget):
             "Backend engine: https://github.com/schollz/croc\n"
             "GUI stack: Python + PySide6\n\n"
             "UI author: B1progame\n\n"
+            "License: MIT (see LICENSE file)\n"
+            "Warranty: Provided AS IS, without warranty or liability.\n\n"
             "Security note:\n"
             "CrocDrop does not invent cryptographic guarantees. It relies on croc's protocol and behavior."
         )

@@ -1,6 +1,8 @@
-﻿# CrocDrop
+# CrocDrop
 
 CrocDrop is a Windows-first desktop GUI for the official [`schollz/croc`](https://github.com/schollz/croc) file transfer tool.
+
+Author: `B1progame`
 
 ## What This Project Does
 
@@ -77,6 +79,25 @@ pyinstaller --noconfirm --windowed --name CrocDrop main.py
 
 Distribute the generated `dist\CrocDrop` folder (or build an installer around it).
 
+## Inno Setup Installer
+
+This repo includes a ready Inno Setup script:
+
+- `installer/CrocDrop.iss`
+
+Manual flow:
+
+1. Build `dist\CrocDrop` with PyInstaller.
+2. Open `installer/CrocDrop.iss` in Inno Setup 6.
+3. Build the installer.
+4. Output is written to `installer_output\`.
+
+Automated flow (PowerShell):
+
+```powershell
+.\installer\build_installer.ps1 -Version 1.0.0
+```
+
 ## Key Safety Constraints in App
 
 - No automatic firewall changes.
@@ -88,3 +109,8 @@ Distribute the generated `dist\CrocDrop` folder (or build an installer around it
 ## Project Files
 
 See full structure in `DEVELOPER_NOTES.md`.
+
+## License
+
+This project is licensed under the MIT License.
+See [`LICENSE`](LICENSE) for terms (including no warranty / no liability clause).
