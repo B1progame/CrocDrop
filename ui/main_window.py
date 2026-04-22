@@ -1,5 +1,9 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+from pathlib import Path
+
+from PySide6.QtGui import QIcon
+from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QStackedWidget, QVBoxLayout, QWidget, QMainWindow
 
 from ui.pages.about_page import AboutPage
@@ -11,14 +15,18 @@ from ui.pages.receive_page import ReceivePage
 from ui.pages.send_page import SendPage
 from ui.pages.settings_page import SettingsPage
 from ui.pages.transfers_page import TransfersPage
+from ui.components.toast_popup import ToastPopup
 
 
 class MainWindow(QMainWindow):
     def __init__(self, context, debug_peer: bool = False):
         super().__init__()
         self.context = context
+        self.logo_path = Path(__file__).resolve().parents[1] / "assets" / "crocdrop_lock_logo.svg"
         self.setWindowTitle("CrocDrop")
         self.resize(1320, 860)
+        if self.logo_path.exists():
+            self.setWindowIcon(QIcon(str(self.logo_path)))
 
         root = QWidget()
         self.setCentralWidget(root)
@@ -30,21 +38,47 @@ class MainWindow(QMainWindow):
         sidebar.setObjectName("Sidebar")
         sidebar.setFixedWidth(220)
         side_layout = QVBoxLayout(sidebar)
+        side_layout.setContentsMargins(14, 14, 14, 14)
+        side_layout.setSpacing(10)
+
+        brand_shell = QFrame()
+        brand_shell.setObjectName("BrandShell")
+        brand_layout = QHBoxLayout(brand_shell)
+        brand_layout.setContentsMargins(8, 8, 8, 8)
+        brand_layout.setSpacing(10)
+
+        logo_widget = QSvgWidget(str(self.logo_path))
+        logo_widget.setFixedSize(52, 52)
+
+        brand_text = QVBoxLayout()
+        brand_text.setContentsMargins(0, 0, 0, 0)
+        brand_text.setSpacing(2)
 
         brand = QLabel("CrocDrop")
-        brand.setStyleSheet("font-size:24px;font-weight:800;padding:12px;")
+        brand.setObjectName("BrandTitle")
+        tagline = QLabel("Lock. Send. Done.")
+        tagline.setProperty("role", "muted")
+
+        brand_text.addWidget(brand)
+        brand_text.addWidget(tagline)
+        brand_text.addStretch(1)
+
+        brand_layout.addWidget(logo_widget)
+        brand_layout.addLayout(brand_text, 1)
+
         mode = QLabel("Debug Peer Instance" if debug_peer else "Primary Instance")
         mode.setProperty("role", "muted")
-        mode.setStyleSheet("padding-left:12px;padding-bottom:6px;")
+        mode.setStyleSheet("padding-left:8px;padding-bottom:6px;")
 
         self.nav = QListWidget()
         self.nav.setObjectName("NavList")
         for item in ["Home", "Send", "Receive", "Transfers", "Devices", "Logs", "Settings", "Debug", "About"]:
             self.nav.addItem(QListWidgetItem(item))
 
-        side_layout.addWidget(brand)
+        side_layout.addWidget(brand_shell)
         side_layout.addWidget(mode)
         side_layout.addWidget(self.nav)
+        side_layout.addStretch(1)
 
         panel = QFrame()
         panel.setObjectName("MainPanel")
@@ -100,6 +134,7 @@ class MainWindow(QMainWindow):
         self.nav.currentRowChanged.connect(self.on_page_changed)
         self.home_page.navigate_requested.connect(self.navigate_to)
         self.context.history_service.history_changed.connect(self.home_page.refresh)
+        self.context.transfer_service.transfer_finished.connect(self.on_transfer_finished)
 
         self.nav.setCurrentRow(0)
         self.check_croc()
@@ -122,3 +157,17 @@ class MainWindow(QMainWindow):
     def check_croc(self):
         info = self.context.croc_manager.detect_binary()
         self.context_label.setText(f"{info.source} | {info.version or 'missing'}")
+
+    def on_transfer_finished(self, transfer_id: str, status: str):
+        if status != "completed":
+            return
+        records = self.context.history_service.list_records()
+        record = next((r for r in records if r.transfer_id == transfer_id), None)
+        if not record:
+            return
+        if record.direction not in {"receive", "selftest-receive"}:
+            return
+        message = "File download completed."
+        if record.destination_folder:
+            message = f"Saved to: {record.destination_folder}"
+        ToastPopup("CrocDrop", message)

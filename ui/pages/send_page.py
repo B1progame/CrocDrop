@@ -1,20 +1,8 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
-from pathlib import Path
-
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import (
-    QFileDialog,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMessageBox,
-    QPushButton,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QVBoxLayout, QWidget
 
 from ui.components.common import Card, DropList
 
@@ -24,6 +12,10 @@ class SendPage(QWidget):
         super().__init__()
         self.context = context
         self.current_transfer_id = ""
+        self.pending_output_lines: list[str] = []
+        self.output_flush_timer = QTimer(self)
+        self.output_flush_timer.setInterval(50)
+        self.output_flush_timer.timeout.connect(self.flush_output)
 
         root = QVBoxLayout(self)
         title = QLabel("Send")
@@ -54,15 +46,22 @@ class SendPage(QWidget):
         controls.addWidget(self.start_btn)
         controls.addWidget(copy_btn)
 
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setFormat("Progress: %p%")
+
         runtime = Card("Live Output")
-        self.output = QTextEdit()
+        self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
+        self.output.document().setMaximumBlockCount(1200)
         runtime.layout.addWidget(self.output)
 
         root.addWidget(picker)
         root.addWidget(QLabel("Generated Code"))
         root.addWidget(self.code)
         root.addLayout(controls)
+        root.addWidget(self.progress)
         root.addWidget(runtime)
 
         btn_file.clicked.connect(self.pick_files)
@@ -73,6 +72,7 @@ class SendPage(QWidget):
 
         self.context.transfer_service.transfer_output.connect(self.on_transfer_output)
         self.context.transfer_service.transfer_updated.connect(self.on_transfer_updated)
+        self.context.transfer_service.transfer_finished.connect(self.on_transfer_finished)
 
     def pick_files(self):
         files, _ = QFileDialog.getOpenFileNames(self, "Select files")
@@ -91,7 +91,10 @@ class SendPage(QWidget):
             return
         record = self.context.transfer_service.start_send(paths)
         self.current_transfer_id = record.transfer_id
-        self.output.append(f"Started transfer {record.transfer_id}")
+        self.pending_output_lines.clear()
+        self.output.clear()
+        self.progress.setValue(0)
+        self.output.appendPlainText(f"Started transfer {record.transfer_id}")
 
     def copy_code(self):
         if not self.code.text().strip():
@@ -101,12 +104,32 @@ class SendPage(QWidget):
     def on_transfer_output(self, transfer_id: str, line: str):
         if transfer_id != self.current_transfer_id:
             return
-        self.output.append(line)
+        self.pending_output_lines.extend(part for part in line.splitlines() if part)
+        if self.pending_output_lines and not self.output_flush_timer.isActive():
+            self.output_flush_timer.start()
 
     def on_transfer_updated(self, transfer_id: str):
         if transfer_id != self.current_transfer_id:
             return
         records = self.context.history_service.list_records()
         record = next((r for r in records if r.transfer_id == transfer_id), None)
-        if record and record.code_phrase:
+        if not record:
+            return
+        if record.code_phrase:
             self.code.setText(record.code_phrase)
+        self.progress.setValue(max(0, min(100, int(record.bytes_done))))
+
+    def flush_output(self):
+        if not self.pending_output_lines:
+            self.output_flush_timer.stop()
+            return
+        chunk = "\n".join(self.pending_output_lines)
+        self.pending_output_lines.clear()
+        self.output.appendPlainText(chunk)
+        self.output.verticalScrollBar().setValue(self.output.verticalScrollBar().maximum())
+
+    def on_transfer_finished(self, transfer_id: str, status: str):
+        if transfer_id != self.current_transfer_id:
+            return
+        if status == "completed":
+            self.progress.setValue(100)

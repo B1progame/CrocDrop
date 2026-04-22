@@ -98,12 +98,29 @@ class SettingsPage(QWidget):
         card.layout.addLayout(form)
         card.layout.addWidget(save_btn)
         root.addWidget(card)
+
+        account_card = Card("Account")
+        self.current_profile_label = QLabel()
+        self.profile_combo = QComboBox()
+        self.switch_profile_btn = QPushButton("Switch Profile")
+        self.remove_profile_btn = QPushButton("Remove Current Account")
+        self.guest_mode_btn = QPushButton("Use Guest Mode")
+        account_card.layout.addWidget(self.current_profile_label)
+        account_card.layout.addWidget(self.profile_combo)
+        account_card.layout.addWidget(self.switch_profile_btn)
+        account_card.layout.addWidget(self.remove_profile_btn)
+        account_card.layout.addWidget(self.guest_mode_btn)
+        root.addWidget(account_card)
         root.addStretch(1)
 
         browse_btn.clicked.connect(self.pick_folder)
         binary_btn.clicked.connect(self.pick_binary)
         delete_binary_btn.clicked.connect(self.delete_binary)
         save_btn.clicked.connect(self.save)
+        self.switch_profile_btn.clicked.connect(self.switch_profile)
+        self.remove_profile_btn.clicked.connect(self.remove_current_profile)
+        self.guest_mode_btn.clicked.connect(self.set_guest_mode)
+        self.refresh_account_section()
 
     def pick_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Choose default download folder", self.download_folder.text())
@@ -132,6 +149,7 @@ class SettingsPage(QWidget):
         self.context.settings_service.save(s)
         self.context.log_service.prune_old_logs(s.log_retention_days)
         apply_theme(self.app, s)
+        self.refresh_account_section()
 
     def delete_binary(self):
         path_text = self.binary_path.text().strip()
@@ -155,3 +173,44 @@ class SettingsPage(QWidget):
             QMessageBox.information(self, "Delete Croc Binary", message)
         else:
             QMessageBox.warning(self, "Delete Croc Binary", message)
+
+    def refresh_account_section(self):
+        settings = self.context.settings_service.get()
+        current = settings.current_profile.strip()
+        self.current_profile_label.setText(f"Current profile: {current if current else 'Guest'}")
+        self.profile_combo.clear()
+        self.profile_combo.addItems(settings.profiles)
+        self.remove_profile_btn.setEnabled(bool(current))
+        self.switch_profile_btn.setEnabled(self.profile_combo.count() > 0)
+
+    def switch_profile(self):
+        selected = self.profile_combo.currentText().strip()
+        if not selected:
+            return
+        self.context.settings_service.set_current_profile(selected)
+        self.refresh_account_section()
+        QMessageBox.information(self, "Account", f"Switched profile to '{selected}'.")
+
+    def remove_current_profile(self):
+        settings = self.context.settings_service.get()
+        current = settings.current_profile.strip()
+        if not current:
+            QMessageBox.information(self, "Account", "You are already in guest mode.")
+            return
+        answer = QMessageBox.question(
+            self,
+            "Remove Account",
+            f"Remove account profile '{current}'?\n\nYou will return to guest mode.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        self.context.settings_service.remove_profile(current)
+        self.refresh_account_section()
+        QMessageBox.information(self, "Account", f"Removed '{current}'.")
+
+    def set_guest_mode(self):
+        self.context.settings_service.use_guest_mode()
+        self.refresh_account_section()
+        QMessageBox.information(self, "Account", "Guest mode enabled. You will be asked at startup next launch.")

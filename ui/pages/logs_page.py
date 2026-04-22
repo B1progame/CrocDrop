@@ -31,6 +31,7 @@ class LogsPage(QWidget):
 
         self.output = QTextEdit()
         self.output.setReadOnly(True)
+        self.output.document().setMaximumBlockCount(1500)
         card.layout.addWidget(self.output)
 
         root.addWidget(card)
@@ -42,7 +43,15 @@ class LogsPage(QWidget):
 
     def on_log(self, entry: dict):
         self.entries.append(entry)
-        self.redraw()
+        if len(self.entries) > 5000:
+            self.entries = self.entries[-5000:]
+
+        level = self.level_filter.currentText()
+        if level != "all" and entry["level"] != level:
+            return
+        line = f"{entry['timestamp']} | {entry['level'].upper()} | {entry['source']} | {entry['message']}"
+        self.output.append(line)
+        self.output.verticalScrollBar().setValue(self.output.verticalScrollBar().maximum())
 
     def redraw(self):
         level = self.level_filter.currentText()

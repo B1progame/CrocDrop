@@ -10,6 +10,7 @@ from PySide6.QtCore import QObject, Signal
 
 from models.transfer import TransferRecord
 from services.transfer_parser import TransferOutputParser
+from utils.codegen import generate_code_phrase
 
 
 class TransferRuntime(QObject):
@@ -42,7 +43,8 @@ class TransferRuntime(QObject):
         for line in iter(stream.readline, ""):
             if not line:
                 break
-            text = f"[{stream_name}] {line.rstrip()}"
+            channel = "system" if stream_name in {"stdout", "stderr"} else stream_name
+            text = f"[{channel}] {line.rstrip()}"
             self.output_line.emit(self.transfer_id, text)
             event = self.parser.parse(line)
             if event.code_phrase:
@@ -81,8 +83,12 @@ class TransferService(QObject):
         self.active: dict[str, ActiveTransfer] = {}
 
     def start_send(self, paths: list[str], code_phrase: str = "", direction: str = "send") -> TransferRecord:
+        if not code_phrase.strip():
+            active_profile = self.settings_service.get().current_profile or "guest"
+            code_phrase = generate_code_phrase(active_profile)
         process = self.croc_manager.launch_send(paths=paths, code_phrase=code_phrase)
         record = TransferRecord(direction=direction, source_paths=paths, relay=self.settings_service.get().relay_mode)
+        record.code_phrase = code_phrase
         record.croc_version = self.croc_manager.get_version(Path(self.croc_manager.detect_binary().path))
         self.history_service.add(record)
         self.history_service.mark_started(record)
@@ -90,6 +96,7 @@ class TransferService(QObject):
         runtime = TransferRuntime(record.transfer_id, process, self.parser)
         self._wire_runtime(record, runtime)
         self.active[record.transfer_id] = ActiveTransfer(record=record, runtime=runtime)
+        self.transfer_updated.emit(record.transfer_id)
         runtime.start()
         return record
 
@@ -119,6 +126,13 @@ class TransferService(QObject):
         runtime.finished.connect(lambda tid, exit_code: self._on_finished(record, tid, exit_code))
 
     def _on_output(self, record: TransferRecord, transfer_id: str, line: str) -> None:
+        lowered = line.lower()
+        # Keep transfer logs platform-neutral in UI.
+        if "(for windows)" in lowered or "(for linux/macos)" in lowered:
+            return
+        if "croc_secret=" in lowered:
+            return
+
         if len(record.output_excerpt) > 400:
             record.output_excerpt = record.output_excerpt[-400:]
         record.output_excerpt.append(line)
@@ -127,9 +141,8 @@ class TransferService(QObject):
             record.speed_text = event.speed_text
         if event.failed and not record.error_message:
             record.error_message = line
-        self.history_service.update(record)
+        # Avoid saving history on every output line; this is a major UI freeze source on large transfers.
         self.transfer_output.emit(transfer_id, line)
-        self.transfer_updated.emit(transfer_id)
 
     def _on_code(self, record: TransferRecord, transfer_id: str, code: str) -> None:
         if not record.code_phrase:
@@ -138,12 +151,28 @@ class TransferService(QObject):
             self.transfer_updated.emit(transfer_id)
 
     def _on_progress(self, record: TransferRecord, transfer_id: str, pct: float) -> None:
-        record.bytes_done = int(pct)
+        new_progress = int(pct)
+        if record.bytes_done == new_progress:
+            return
+        record.bytes_done = new_progress
         self.history_service.update(record)
         self.transfer_updated.emit(transfer_id)
 
     def _on_finished(self, record: TransferRecord, transfer_id: str, exit_code: int) -> None:
-        status = "completed" if exit_code == 0 else "failed"
+        no_files_transferred = any("no files transferred" in line.lower() for line in record.output_excerpt[-80:])
+        room_not_ready = any(
+            ("room (secure channel) not ready" in line.lower() or "peer disconnected" in line.lower())
+            for line in record.output_excerpt[-80:]
+        )
+        status = "completed" if exit_code == 0 and not no_files_transferred else "failed"
+        if no_files_transferred and not record.error_message:
+            record.error_message = "No files transferred (likely destination collision or skipped write)."
+        if room_not_ready and not record.error_message:
+            record.error_message = "Receive session is no longer active. Ask sender for a new code."
+        if status == "completed":
+            done_line = "[system] DONE"
+            record.output_excerpt.append(done_line)
+            self.transfer_output.emit(transfer_id, done_line)
         self.history_service.mark_finished(record, status=status, error=record.error_message)
         self.transfer_finished.emit(transfer_id, status)
         self.transfer_updated.emit(transfer_id)

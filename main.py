@@ -13,6 +13,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("CrocDrop.Desktop")
+        except Exception:
+            pass
+
     args = parse_args()
     qt_app, window = build_app(debug_peer=args.debug_peer)
     window.show()

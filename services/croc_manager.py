@@ -212,7 +212,15 @@ class CrocManager:
             cmd.extend(["--code", code_phrase.strip()])
         cmd.extend(paths)
         self.log.info("Starting send process: %s", cmd)
-        return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+        return subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
 
     def launch_receive(self, code_phrase: str, destination: str, overwrite: bool) -> subprocess.Popen:
         info = self.ensure_binary(auto_download=self.settings_service.get().auto_download_croc)
@@ -221,7 +229,15 @@ class CrocManager:
             cmd.append("--overwrite")
         cmd.extend(["--out", destination, code_phrase])
         self.log.info("Starting receive process: %s", cmd)
-        return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+        return subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
 
     def diagnostics(self) -> dict:
         info = self.detect_binary()

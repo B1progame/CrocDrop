@@ -33,6 +33,16 @@ def apply_theme(app, settings: AppSettings) -> None:
             background: {panel_bg};
             border-right: 1px solid #2a3140;
         }}
+        QFrame#BrandShell {{
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(42, 55, 75, 0.9), stop:1 rgba(20, 27, 38, 0.9));
+            border: 1px solid #2b3d52;
+            border-radius: 16px;
+        }}
+        QLabel#BrandTitle {{
+            font-size: 23px;
+            font-weight: 800;
+            letter-spacing: 0.4px;
+        }}
         QListWidget#NavList {{
             background: transparent;
             border: 0;

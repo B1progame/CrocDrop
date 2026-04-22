@@ -22,6 +22,12 @@ class TransferOutputParser:
         if any(key in lowered for key in ["error", "failed", "panic", "invalid"]):
             event.level = "error"
             event.failed = True
+        if "no files transferred" in lowered:
+            event.level = "error"
+            event.failed = True
+        if "room (secure channel) not ready" in lowered or "peer disconnected" in lowered:
+            event.level = "error"
+            event.failed = True
 
         if any(key in lowered for key in ["finished", "complete", "received", "sent"]):
             event.completed = True
