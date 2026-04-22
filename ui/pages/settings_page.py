@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QGridLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -69,8 +70,6 @@ class SettingsPage(QWidget):
         self.remember_last.setChecked(settings.remember_last_folders)
         self.dark_mode = QCheckBox("Enabled")
         self.dark_mode.setChecked(settings.dark_mode)
-        self.debug_mode = QCheckBox("Enabled")
-        self.debug_mode.setChecked(settings.debug_mode)
 
         self.accent = QComboBox()
         self.accent.addItems(["#8f5cff", "#b06cff", "#ff7cc5", "#35c9a5"])
@@ -112,8 +111,6 @@ class SettingsPage(QWidget):
         row = self._add_setting_row(form, row, "Croc binary path", "Managed croc executable location used by CrocDrop.", binary_widget)
         row = self._add_setting_row(form, row, "Auto-download croc", "Automatically fetch official croc release when binary is missing.", self.auto_download)
         row = self._add_setting_row(form, row, "Log retention (days)", "Automatically prune old logs older than this window.", self.log_retention)
-        self._add_setting_row(form, row, "Debug mode", "Expose extra diagnostics and troubleshooting controls.", self.debug_mode)
-
         save_btn = QPushButton("Save Settings")
         save_btn.setObjectName("PrimaryButton")
         card.layout.addLayout(form)
@@ -133,6 +130,16 @@ class SettingsPage(QWidget):
         account_card.layout.addWidget(self.remove_profile_btn)
         account_card.layout.addWidget(self.guest_mode_btn)
         container_layout.addWidget(account_card)
+
+        debug_card = Card("Developer Features")
+        self.debug_status_label = QLabel()
+        self.debug_status_label.setObjectName("SettingDescription")
+        self.enable_debug_btn = QPushButton("Enable Debug Features")
+        self.disable_debug_btn = QPushButton("Disable Debug Features")
+        debug_card.layout.addWidget(self.debug_status_label)
+        debug_card.layout.addWidget(self.enable_debug_btn)
+        debug_card.layout.addWidget(self.disable_debug_btn)
+        container_layout.addWidget(debug_card)
         container_layout.addStretch(1)
 
         browse_btn.clicked.connect(self.pick_folder)
@@ -142,7 +149,10 @@ class SettingsPage(QWidget):
         self.switch_profile_btn.clicked.connect(self.switch_profile)
         self.remove_profile_btn.clicked.connect(self.remove_current_profile)
         self.guest_mode_btn.clicked.connect(self.set_guest_mode)
+        self.enable_debug_btn.clicked.connect(self.enable_debug_features)
+        self.disable_debug_btn.clicked.connect(self.disable_debug_features)
         self.refresh_account_section()
+        self.refresh_debug_controls()
 
     def _add_setting_row(self, grid: QGridLayout, row: int, label_text: str, description: str, widget: QWidget) -> int:
         left = QWidget()
@@ -183,11 +193,11 @@ class SettingsPage(QWidget):
         s.croc_binary_path = self.binary_path.text().strip()
         s.auto_download_croc = self.auto_download.isChecked()
         s.log_retention_days = self.log_retention.value()
-        s.debug_mode = self.debug_mode.isChecked()
         self.context.settings_service.save(s)
         self.context.log_service.prune_old_logs(s.log_retention_days)
         apply_theme(self.app, s)
         self.refresh_account_section()
+        self.refresh_debug_controls()
 
     def delete_binary(self):
         path_text = self.binary_path.text().strip()
@@ -252,3 +262,33 @@ class SettingsPage(QWidget):
         self.context.settings_service.use_guest_mode()
         self.refresh_account_section()
         QMessageBox.information(self, "Account", "Guest mode enabled. You will be asked at startup next launch.")
+
+    def enable_debug_features(self):
+        password, ok = QInputDialog.getText(self, "Enable Debug", "Enter admin password:", QLineEdit.Password)
+        if not ok:
+            return
+        if password != "admin":
+            QMessageBox.warning(self, "Enable Debug", "Wrong password.")
+            return
+
+        settings = self.context.settings_service.get()
+        settings.debug_mode = True
+        self.context.settings_service.save(settings)
+        self.refresh_debug_controls()
+        QMessageBox.information(self, "Enable Debug", "Debug features enabled. Restart CrocDrop to show the Debug page.")
+
+    def disable_debug_features(self):
+        settings = self.context.settings_service.get()
+        if not settings.debug_mode:
+            self.refresh_debug_controls()
+            return
+        settings.debug_mode = False
+        self.context.settings_service.save(settings)
+        self.refresh_debug_controls()
+        QMessageBox.information(self, "Disable Debug", "Debug features disabled. Restart CrocDrop to hide the Debug page.")
+
+    def refresh_debug_controls(self):
+        enabled = self.context.settings_service.get().debug_mode
+        self.debug_status_label.setText(f"Debug features are currently {'enabled' if enabled else 'disabled'}.")
+        self.enable_debug_btn.setEnabled(not enabled)
+        self.disable_debug_btn.setEnabled(enabled)

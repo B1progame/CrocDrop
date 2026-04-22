@@ -31,6 +31,10 @@ class HistoryService(QObject):
     def list_records(self) -> list[TransferRecord]:
         return list(reversed(self._records))
 
+    def clear(self) -> None:
+        self._records = []
+        self.save()
+
     def add(self, record: TransferRecord) -> TransferRecord:
         self._records.append(record)
         self.save()

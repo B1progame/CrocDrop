@@ -33,10 +33,12 @@ class TransfersPage(QWidget):
         retry_btn = QPushButton("Retry")
         open_btn = QPushButton("Open Folder")
         copy_btn = QPushButton("Copy Details")
+        clear_btn = QPushButton("Clear History")
         controls.addWidget(refresh_btn)
         controls.addWidget(retry_btn)
         controls.addWidget(open_btn)
         controls.addWidget(copy_btn)
+        controls.addWidget(clear_btn)
         controls.addStretch(1)
         card.layout.addLayout(controls)
 
@@ -46,6 +48,7 @@ class TransfersPage(QWidget):
         retry_btn.clicked.connect(self.retry_selected)
         open_btn.clicked.connect(self.open_folder)
         copy_btn.clicked.connect(self.copy_details)
+        clear_btn.clicked.connect(self.clear_history)
         self.context.history_service.history_changed.connect(self.refresh)
 
         self.refresh()
@@ -98,3 +101,15 @@ class TransfersPage(QWidget):
         from PySide6.QtGui import QGuiApplication
 
         QGuiApplication.clipboard().setText(json.dumps(rec.to_dict(), indent=2))
+
+    def clear_history(self):
+        answer = QMessageBox.question(
+            self,
+            "Clear History",
+            "Remove all transfer history entries?\n\nThis does not delete transferred files.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        self.context.history_service.clear()

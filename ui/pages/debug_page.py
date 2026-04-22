@@ -21,20 +21,26 @@ class DebugPage(QWidget):
         self.size_spin = QSpinBox()
         self.size_spin.setRange(1, 2048)
         self.size_spin.setValue(5)
+        self.size_gb_preview = QLabel()
+        self.size_gb_preview.setProperty("role", "muted")
+        self._update_size_preview(self.size_spin.value())
 
         row = QHBoxLayout()
         row.addWidget(QLabel("Dummy size (MB):"))
         row.addWidget(self.size_spin)
+        row.addWidget(self.size_gb_preview)
         row.addStretch(1)
 
         self.selftest_btn = QPushButton("Run Self-Test")
         self.selftest_btn.setObjectName("PrimaryButton")
+        self.generate_dummy_btn = QPushButton("Generate Dummy File")
         self.launch_dual_btn = QPushButton("Launch Second Instance")
         self.health_btn = QPushButton("Backend Health Check")
         self.bundle_btn = QPushButton("Save Diagnostic Bundle")
 
         controls.layout.addLayout(row)
         controls.layout.addWidget(self.selftest_btn)
+        controls.layout.addWidget(self.generate_dummy_btn)
         controls.layout.addWidget(self.launch_dual_btn)
         controls.layout.addWidget(self.health_btn)
         controls.layout.addWidget(self.bundle_btn)
@@ -49,9 +55,11 @@ class DebugPage(QWidget):
         root.addWidget(logs, 1)
 
         self.selftest_btn.clicked.connect(self.run_self_test)
+        self.generate_dummy_btn.clicked.connect(self.generate_dummy_file)
         self.launch_dual_btn.clicked.connect(self.launch_second)
         self.health_btn.clicked.connect(self.health_check)
         self.bundle_btn.clicked.connect(self.save_bundle)
+        self.size_spin.valueChanged.connect(self._update_size_preview)
 
         self.context.debug_service.self_test_progress.connect(self.on_self_test_progress)
         self.context.debug_service.self_test_finished.connect(self.on_self_test_finished)
@@ -59,6 +67,13 @@ class DebugPage(QWidget):
     def run_self_test(self):
         self.output.appendPlainText("Starting self-test...")
         self.context.debug_service.run_self_test(size_mb=self.size_spin.value())
+
+    def generate_dummy_file(self):
+        folder = QFileDialog.getExistingDirectory(self, "Choose folder for generated dummy file")
+        if not folder:
+            return
+        path = self.context.debug_service.generate_dummy_file(Path(folder), size_mb=self.size_spin.value())
+        self.output.appendPlainText(f"Generated: {path}")
 
     def launch_second(self):
         self.context.debug_service.launch_second_instance()
@@ -85,3 +100,7 @@ class DebugPage(QWidget):
 
     def on_self_test_finished(self, ok: bool, msg: str):
         self.output.appendPlainText(("PASS" if ok else "FAIL") + " | " + msg)
+
+    def _update_size_preview(self, size_mb: int):
+        size_gb = size_mb / 1024.0
+        self.size_gb_preview.setText(f"~ {size_gb:.3f} GB")

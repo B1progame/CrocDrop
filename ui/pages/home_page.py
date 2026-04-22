@@ -31,7 +31,10 @@ class HomePage(QWidget):
         status.layout.addWidget(self.relay_label)
 
         quick = Card("Quick Actions")
-        for name, page in [("Send", "Send"), ("Receive", "Receive"), ("Self-Test", "Debug"), ("Open History", "Transfers")]:
+        quick_actions = [("Send", "Send"), ("Receive", "Receive"), ("Open History", "Transfers")]
+        if self.context.settings_service.get().debug_mode:
+            quick_actions.insert(2, ("Self-Test", "Debug"))
+        for name, page in quick_actions:
             btn = QPushButton(name)
             btn.clicked.connect(lambda _=False, p=page: self.navigate_requested.emit(p))
             quick.layout.addWidget(btn)

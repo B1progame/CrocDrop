@@ -4,7 +4,6 @@ from pathlib import Path
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, QRect, Qt
 from PySide6.QtGui import QIcon
-from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -37,6 +36,7 @@ class MainWindow(QMainWindow):
     def __init__(self, context, debug_peer: bool = False):
         super().__init__()
         self.context = context
+        self.debug_enabled = bool(self.context.settings_service.get().debug_mode or debug_peer)
         self.logo_path = Path(__file__).resolve().parents[1] / "assets" / "crocdrop_lock_logo.svg"
         self.icon_dir = Path(__file__).resolve().parents[1] / "assets" / "icons"
         self.setWindowTitle("CrocDrop")
@@ -62,19 +62,7 @@ class MainWindow(QMainWindow):
         brand_shell.setObjectName("BrandShell")
         brand_layout = QVBoxLayout(brand_shell)
         brand_layout.setContentsMargins(10, 10, 10, 10)
-        brand_layout.setSpacing(10)
-
-        logo_row = QHBoxLayout()
-        logo_row.setContentsMargins(0, 0, 0, 0)
-        logo_row.setSpacing(10)
-
-        logo_pill = QFrame()
-        logo_pill.setObjectName("LogoPill")
-        logo_pill_layout = QVBoxLayout(logo_pill)
-        logo_pill_layout.setContentsMargins(6, 6, 6, 6)
-        logo_widget = QSvgWidget(str(self.logo_path))
-        logo_widget.setFixedSize(42, 42)
-        logo_pill_layout.addWidget(logo_widget)
+        brand_layout.setSpacing(8)
 
         text_col = QVBoxLayout()
         text_col.setContentsMargins(0, 0, 0, 0)
@@ -85,9 +73,6 @@ class MainWindow(QMainWindow):
         tagline.setProperty("role", "muted")
         text_col.addWidget(brand)
         text_col.addWidget(tagline)
-
-        logo_row.addWidget(logo_pill, 0, Qt.AlignmentFlag.AlignTop)
-        logo_row.addLayout(text_col, 1)
 
         badges = QHBoxLayout()
         badges.setContentsMargins(0, 0, 0, 0)
@@ -101,7 +86,7 @@ class MainWindow(QMainWindow):
         badges.addWidget(self.mode_badge)
         badges.addStretch(1)
 
-        brand_layout.addLayout(logo_row)
+        brand_layout.addLayout(text_col)
         brand_layout.addLayout(badges)
 
         mode = QLabel("Debug Peer Instance" if debug_peer else "Primary Instance")
@@ -155,18 +140,23 @@ class MainWindow(QMainWindow):
         self.debug_page = DebugPage(context)
         self.about_page = AboutPage()
 
-        for page in [
-            self.home_page,
-            self.send_page,
-            self.receive_page,
-            self.transfers_page,
-            self.devices_page,
-            self.logs_page,
-            self.settings_page,
-            self.debug_page,
-            self.about_page,
-        ]:
-            self.pages.addWidget(page)
+        self.page_map: dict[str, QWidget] = {
+            "Home": self.home_page,
+            "Send": self.send_page,
+            "Receive": self.receive_page,
+            "Transfers": self.transfers_page,
+            "Devices": self.devices_page,
+            "Logs": self.logs_page,
+            "Settings": self.settings_page,
+            "About": self.about_page,
+        }
+        if self.debug_enabled:
+            self.page_map["Debug"] = self.debug_page
+
+        for label in self._nav_labels():
+            page = self.page_map.get(label)
+            if page is not None:
+                self.pages.addWidget(page)
 
         panel_layout.addWidget(header)
         panel_layout.addWidget(self.pages, 1)
@@ -198,19 +188,27 @@ class MainWindow(QMainWindow):
             self._sync_nav_indicator(animated=False)
         return super().eventFilter(watched, event)
 
+    def _nav_labels(self) -> list[str]:
+        labels = ["Home", "Send", "Receive", "Transfers", "Devices", "Logs", "Settings"]
+        if self.debug_enabled:
+            labels.append("Debug")
+        labels.append("About")
+        return labels
+
     def _build_nav_items(self) -> None:
-        items: list[tuple[str, str]] = [
-            ("Home", "nav_home.svg"),
-            ("Send", "nav_send.svg"),
-            ("Receive", "nav_receive.svg"),
-            ("Transfers", "nav_transfers.svg"),
-            ("Devices", "nav_devices.svg"),
-            ("Logs", "nav_logs.svg"),
-            ("Settings", "nav_settings.svg"),
-            ("Debug", "nav_debug.svg"),
-            ("About", "nav_about.svg"),
-        ]
-        for label, icon_name in items:
+        items: dict[str, str] = {
+            "Home": "nav_home.svg",
+            "Send": "nav_send.svg",
+            "Receive": "nav_receive.svg",
+            "Transfers": "nav_transfers.svg",
+            "Devices": "nav_devices.svg",
+            "Logs": "nav_logs.svg",
+            "Settings": "nav_settings.svg",
+            "Debug": "nav_debug.svg",
+            "About": "nav_about.svg",
+        }
+        for label in self._nav_labels():
+            icon_name = items[label]
             icon_path = self.icon_dir / icon_name
             icon = QIcon(str(icon_path)) if icon_path.exists() else QIcon()
             item = QListWidgetItem(icon, label)
