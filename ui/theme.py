@@ -4,7 +4,7 @@ from models.settings import AppSettings
 
 
 def apply_theme(app, settings: AppSettings) -> None:
-    accent = settings.accent_color or "#35c9a5"
+    accent = settings.accent_color or "#8f5cff"
     if settings.dark_mode:
         palette = {
             "base_bg": "#0c1118",
@@ -22,6 +22,8 @@ def apply_theme(app, settings: AppSettings) -> None:
             "success": "#49d59e",
             "danger": "#ff6f6f",
         }
+        accent_gradient = "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4f2a90, stop:0.55 #8c45ff, stop:1 #f58bc6)"
+        accent_gradient_soft = "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(79,42,144,140), stop:1 rgba(245,139,198,140))"
     else:
         palette = {
             "base_bg": "#eef3f8",
@@ -39,6 +41,8 @@ def apply_theme(app, settings: AppSettings) -> None:
             "success": "#1f9768",
             "danger": "#c23d3d",
         }
+        accent_gradient = "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6a45cc, stop:0.6 #9b5cff, stop:1 #e873b4)"
+        accent_gradient_soft = "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(106,69,204,90), stop:1 rgba(232,115,180,90))"
 
     app.setStyleSheet(
         f"""
@@ -47,6 +51,9 @@ def apply_theme(app, settings: AppSettings) -> None:
             color: {palette['text']};
             font-family: "Segoe UI";
             font-size: 13px;
+        }}
+        QLabel {{
+            background: transparent;
         }}
         QMainWindow, QFrame#MainPanel {{
             background: {palette['base_bg']};
@@ -60,10 +67,24 @@ def apply_theme(app, settings: AppSettings) -> None:
             border: 1px solid {palette['line']};
             border-radius: 14px;
         }}
+        QFrame#LogoPill {{
+            background: {palette['surface_0']};
+            border: 1px solid {palette['line']};
+            border-radius: 10px;
+        }}
         QLabel#BrandTitle {{
             font-size: 22px;
             font-weight: 800;
             letter-spacing: 0.3px;
+        }}
+        QLabel#SidebarBadge {{
+            color: {palette['text_soft']};
+            background: {palette['surface_0']};
+            border: 1px solid {palette['line']};
+            border-radius: 8px;
+            padding: 2px 8px;
+            font-size: 11px;
+            font-weight: 600;
         }}
         QLabel#PageTitle {{
             font-size: 22px;
@@ -96,19 +117,26 @@ def apply_theme(app, settings: AppSettings) -> None:
             outline: 0;
         }}
         QListWidget#NavList::item {{
+            min-height: 30px;
             padding: 10px 12px;
             border-radius: 9px;
             margin-bottom: 4px;
             color: {palette['text_soft']};
+            background: transparent;
         }}
         QListWidget#NavList::item:hover {{
             background: {palette['hover']};
             color: {palette['text']};
         }}
         QListWidget#NavList::item:selected {{
-            background: {accent};
-            color: #08121a;
+            background: transparent;
+            color: #ffffff;
             font-weight: 700;
+        }}
+        QFrame#NavIndicator {{
+            border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: {accent_gradient_soft};
         }}
         QFrame#Card {{
             background: {palette['surface_1']};
@@ -118,6 +146,15 @@ def apply_theme(app, settings: AppSettings) -> None:
         QLabel#CardTitle {{
             font-size: 14px;
             font-weight: 700;
+        }}
+        QLabel#SettingLabel {{
+            color: {palette['text_soft']};
+            font-weight: 600;
+            background: transparent;
+        }}
+        QLabel#SettingDescription {{
+            color: {palette['text_soft']};
+            background: transparent;
         }}
         QPushButton {{
             background: {palette['surface_2']};
@@ -133,13 +170,13 @@ def apply_theme(app, settings: AppSettings) -> None:
             background: {palette['pressed']};
         }}
         QPushButton#PrimaryButton {{
-            background: {accent};
-            color: #071118;
+            background: {accent_gradient};
+            color: #ffffff;
             font-weight: 700;
             border: 0;
         }}
         QPushButton#PrimaryButton:hover {{
-            background: {accent};
+            background: {accent_gradient};
             border: 0;
         }}
         QLineEdit, QPlainTextEdit, QTextEdit, QComboBox, QSpinBox, QListWidget, QTableWidget {{
@@ -188,6 +225,7 @@ def apply_theme(app, settings: AppSettings) -> None:
         }}
         QLabel[role="muted"] {{
             color: {palette['text_soft']};
+            background: transparent;
         }}
         """
     )

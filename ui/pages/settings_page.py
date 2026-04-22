@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
-    QFormLayout,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -45,31 +45,35 @@ class SettingsPage(QWidget):
         settings = self.context.settings_service.get()
 
         card = Card("General")
-        form = QFormLayout()
-        form.setVerticalSpacing(12)
+        form = QGridLayout()
+        form.setContentsMargins(0, 0, 0, 0)
         form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(10)
+        form.setColumnStretch(1, 1)
 
         self.download_folder = QLineEdit(settings.default_download_folder)
         browse_btn = QPushButton("Browse")
         folder_row = QHBoxLayout()
+        folder_row.setContentsMargins(0, 0, 0, 0)
+        folder_row.setSpacing(8)
         folder_row.addWidget(self.download_folder, 1)
         folder_row.addWidget(browse_btn)
         folder_widget = QWidget()
         folder_widget.setLayout(folder_row)
 
-        self.ask_before = QCheckBox()
+        self.ask_before = QCheckBox("Enabled")
         self.ask_before.setChecked(settings.ask_before_receiving)
-        self.auto_open = QCheckBox()
+        self.auto_open = QCheckBox("Enabled")
         self.auto_open.setChecked(settings.auto_open_received_folder)
-        self.remember_last = QCheckBox()
+        self.remember_last = QCheckBox("Enabled")
         self.remember_last.setChecked(settings.remember_last_folders)
-        self.dark_mode = QCheckBox()
+        self.dark_mode = QCheckBox("Enabled")
         self.dark_mode.setChecked(settings.dark_mode)
-        self.debug_mode = QCheckBox()
+        self.debug_mode = QCheckBox("Enabled")
         self.debug_mode.setChecked(settings.debug_mode)
 
         self.accent = QComboBox()
-        self.accent.addItems(["#35c9a5", "#4ca3ff", "#f3c14b", "#ff6e6e"])
+        self.accent.addItems(["#8f5cff", "#b06cff", "#ff7cc5", "#35c9a5"])
         self.accent.setCurrentText(settings.accent_color)
 
         self.relay_mode = QComboBox()
@@ -81,6 +85,8 @@ class SettingsPage(QWidget):
         binary_btn = QPushButton("Browse Binary")
         delete_binary_btn = QPushButton("Delete Croc Binary")
         binary_row = QHBoxLayout()
+        binary_row.setContentsMargins(0, 0, 0, 0)
+        binary_row.setSpacing(8)
         binary_row.addWidget(self.binary_path, 1)
         binary_row.addWidget(binary_btn)
         binary_row.addWidget(delete_binary_btn)
@@ -91,21 +97,22 @@ class SettingsPage(QWidget):
         self.log_retention.setRange(1, 120)
         self.log_retention.setValue(settings.log_retention_days)
 
-        self.auto_download = QCheckBox()
+        self.auto_download = QCheckBox("Enabled")
         self.auto_download.setChecked(settings.auto_download_croc)
 
-        form.addRow("Default download folder", folder_widget)
-        form.addRow("Ask before receiving", self.ask_before)
-        form.addRow("Auto-open received folder", self.auto_open)
-        form.addRow("Remember last folders", self.remember_last)
-        form.addRow("Dark mode", self.dark_mode)
-        form.addRow("Accent color", self.accent)
-        form.addRow("Relay mode", self.relay_mode)
-        form.addRow("Custom relay", self.custom_relay)
-        form.addRow("Croc binary path", binary_widget)
-        form.addRow("Auto-download croc", self.auto_download)
-        form.addRow("Log retention (days)", self.log_retention)
-        form.addRow("Debug mode", self.debug_mode)
+        row = 0
+        row = self._add_setting_row(form, row, "Default download folder", "Where incoming files are saved by default.", folder_widget)
+        row = self._add_setting_row(form, row, "Ask before receiving", "Prompt confirmation before accepting incoming transfer data.", self.ask_before)
+        row = self._add_setting_row(form, row, "Auto-open received folder", "Open the destination folder after a successful receive.", self.auto_open)
+        row = self._add_setting_row(form, row, "Remember last folders", "Keep the most recent send/receive directories for faster reuse.", self.remember_last)
+        row = self._add_setting_row(form, row, "Dark mode", "Use the premium dark appearance for the whole app shell.", self.dark_mode)
+        row = self._add_setting_row(form, row, "Accent color", "Primary accent for focus rings and highlights.", self.accent)
+        row = self._add_setting_row(form, row, "Relay mode", "Use official public relay now, custom relay is ready for future self-hosting.", self.relay_mode)
+        row = self._add_setting_row(form, row, "Custom relay", "Optional custom relay endpoint (used when relay mode is custom).", self.custom_relay)
+        row = self._add_setting_row(form, row, "Croc binary path", "Managed croc executable location used by CrocDrop.", binary_widget)
+        row = self._add_setting_row(form, row, "Auto-download croc", "Automatically fetch official croc release when binary is missing.", self.auto_download)
+        row = self._add_setting_row(form, row, "Log retention (days)", "Automatically prune old logs older than this window.", self.log_retention)
+        self._add_setting_row(form, row, "Debug mode", "Expose extra diagnostics and troubleshooting controls.", self.debug_mode)
 
         save_btn = QPushButton("Save Settings")
         save_btn.setObjectName("PrimaryButton")
@@ -115,6 +122,7 @@ class SettingsPage(QWidget):
 
         account_card = Card("Account")
         self.current_profile_label = QLabel()
+        self.current_profile_label.setObjectName("SettingDescription")
         self.profile_combo = QComboBox()
         self.switch_profile_btn = QPushButton("Switch Profile")
         self.remove_profile_btn = QPushButton("Remove Current Account")
@@ -135,6 +143,22 @@ class SettingsPage(QWidget):
         self.remove_profile_btn.clicked.connect(self.remove_current_profile)
         self.guest_mode_btn.clicked.connect(self.set_guest_mode)
         self.refresh_account_section()
+
+    def _add_setting_row(self, grid: QGridLayout, row: int, label_text: str, description: str, widget: QWidget) -> int:
+        left = QWidget()
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(2)
+        label = QLabel(label_text)
+        label.setObjectName("SettingLabel")
+        desc = QLabel(description)
+        desc.setObjectName("SettingDescription")
+        desc.setWordWrap(True)
+        left_layout.addWidget(label)
+        left_layout.addWidget(desc)
+        grid.addWidget(left, row, 0)
+        grid.addWidget(widget, row, 1)
+        return row + 1
 
     def pick_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Choose default download folder", self.download_folder.text())
