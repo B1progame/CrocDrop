@@ -148,12 +148,17 @@ def apply_theme(app, settings: AppSettings) -> None:
             font-weight: 700;
         }}
         QLabel#SettingLabel {{
-            color: {palette['text_soft']};
-            font-weight: 600;
+            color: {palette['text']};
+            font-size: 13px;
+            font-weight: 700;
             background: transparent;
         }}
         QLabel#SettingDescription {{
             color: {palette['text_soft']};
+            font-size: 12px;
+            background: transparent;
+        }}
+        QWidget#SettingInfo {{
             background: transparent;
         }}
         QPushButton {{

@@ -48,8 +48,9 @@ class SettingsPage(QWidget):
         card = Card("General")
         form = QGridLayout()
         form.setContentsMargins(0, 0, 0, 0)
-        form.setHorizontalSpacing(14)
-        form.setVerticalSpacing(10)
+        form.setHorizontalSpacing(16)
+        form.setVerticalSpacing(12)
+        form.setColumnMinimumWidth(0, 260)
         form.setColumnStretch(1, 1)
 
         self.download_folder = QLineEdit(settings.default_download_folder)
@@ -156,6 +157,7 @@ class SettingsPage(QWidget):
 
     def _add_setting_row(self, grid: QGridLayout, row: int, label_text: str, description: str, widget: QWidget) -> int:
         left = QWidget()
+        left.setObjectName("SettingInfo")
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(2)

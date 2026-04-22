@@ -19,7 +19,7 @@ class DebugPage(QWidget):
 
         controls = Card("Self-Test and Tools")
         self.size_spin = QSpinBox()
-        self.size_spin.setRange(1, 2048)
+        self.size_spin.setRange(1, 102400)
         self.size_spin.setValue(5)
         self.size_gb_preview = QLabel()
         self.size_gb_preview.setProperty("role", "muted")
@@ -72,8 +72,11 @@ class DebugPage(QWidget):
         folder = QFileDialog.getExistingDirectory(self, "Choose folder for generated dummy file")
         if not folder:
             return
-        path = self.context.debug_service.generate_dummy_file(Path(folder), size_mb=self.size_spin.value())
-        self.output.appendPlainText(f"Generated: {path}")
+        try:
+            path = self.context.debug_service.generate_dummy_file(Path(folder), size_mb=self.size_spin.value())
+            self.output.appendPlainText(f"Generated: {path}")
+        except Exception as exc:
+            self.output.appendPlainText(f"Failed to generate file: {exc}")
 
     def launch_second(self):
         self.context.debug_service.launch_second_instance()

@@ -252,8 +252,12 @@ class MainWindow(QMainWindow):
         self._page_fade_anim.setEndValue(1.0)
 
         def _cleanup():
-            widget.setGraphicsEffect(None)
-            effect.deleteLater()
+            # Guard against rapid page switches where Qt already deleted the effect.
+            try:
+                if widget.graphicsEffect() is effect:
+                    widget.setGraphicsEffect(None)
+            except RuntimeError:
+                return
 
         self._page_fade_anim.finished.connect(_cleanup)
         self._page_fade_anim.start()

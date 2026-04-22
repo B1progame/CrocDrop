@@ -20,6 +20,7 @@ class AboutPage(QWidget):
             "CrocDrop is a Windows-first desktop GUI for the official croc transfer tool.\n\n"
             "Backend engine: https://github.com/schollz/croc\n"
             "GUI stack: Python + PySide6\n\n"
+            "UI author: B1progame\n\n"
             "Security note:\n"
             "CrocDrop does not invent cryptographic guarantees. It relies on croc's protocol and behavior."
         )
