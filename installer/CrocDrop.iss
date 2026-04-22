@@ -3,6 +3,9 @@
 #define MyAppPublisher "B1progame"
 #define MyAppURL "https://github.com/B1progame/send-THINGS--UI-"
 #define MyAppExeName "CrocDrop.exe"
+#ifndef MyOutputBaseFilename
+  #define MyOutputBaseFilename "CrocDrop-Setup-" + MyAppVersion
+#endif
 
 [Setup]
 AppId={{B860A8B0-37A5-4E9E-BEB6-2D73D86D6D24}
@@ -19,7 +22,7 @@ LicenseFile=..\LICENSE
 SetupIconFile=..\installer\CrocDrop.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 OutputDir=..\installer_output
-OutputBaseFilename=CrocDrop-Setup-{#MyAppVersion}
+OutputBaseFilename={#MyOutputBaseFilename}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern

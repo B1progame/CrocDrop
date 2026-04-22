@@ -37,14 +37,57 @@ if not pix.save(str(ico_path), "ICO"):
     raise SystemExit(f"Failed to write ICO: {ico_path}")
 print(f"Generated icon: {ico_path}")
 '@
-.\.venv\Scripts\python.exe -c $iconGenScript
+$tempScript = Join-Path $env:TEMP "crocdrop_generate_icon.py"
+Set-Content -Path $tempScript -Value $iconGenScript -Encoding UTF8
+try {
+    & .\.venv\Scripts\python.exe $tempScript
+    if ($LASTEXITCODE -ne 0) {
+        throw "Icon generation failed with exit code $LASTEXITCODE."
+    }
+}
+finally {
+    if (Test-Path $tempScript) {
+        Remove-Item $tempScript -Force
+    }
+}
 
 Write-Host "[CrocDrop] Installing requirements..."
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+if ($LASTEXITCODE -ne 0) {
+    throw "pip install -r requirements.txt failed with exit code $LASTEXITCODE."
+}
 .\.venv\Scripts\python.exe -m pip install pyinstaller
+if ($LASTEXITCODE -ne 0) {
+    throw "pip install pyinstaller failed with exit code $LASTEXITCODE."
+}
 
 Write-Host "[CrocDrop] Building desktop bundle..."
+# Prevent common lock failures from a running packaged app.
+Get-Process -Name "CrocDrop" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+$distDir = Join-Path $repoRoot "dist\CrocDrop"
+if (Test-Path $distDir) {
+    for ($i = 0; $i -lt 3; $i++) {
+        try {
+            Remove-Item $distDir -Recurse -Force -ErrorAction Stop
+            break
+        }
+        catch {
+            Start-Sleep -Milliseconds 400
+            if ($i -eq 2) {
+                throw "Could not clean dist\CrocDrop. Close running app/windows using dist files and retry."
+            }
+        }
+    }
+}
+
 .\.venv\Scripts\python.exe -m PyInstaller --noconfirm --windowed --name CrocDrop --icon ".\installer\CrocDrop.ico" main.py
+if ($LASTEXITCODE -ne 0) {
+    throw "PyInstaller failed with exit code $LASTEXITCODE."
+}
+if (-not (Test-Path $distDir)) {
+    throw "PyInstaller completed but dist\CrocDrop is missing."
+}
 
 $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
 if (-not (Test-Path $iscc)) {
@@ -52,6 +95,11 @@ if (-not (Test-Path $iscc)) {
 }
 
 Write-Host "[CrocDrop] Building installer..."
-& $iscc ".\installer\CrocDrop.iss" "/DMyAppVersion=$Version"
+$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$outputBase = "CrocDrop-Setup-$Version-$stamp"
+& $iscc ".\installer\CrocDrop.iss" "/DMyAppVersion=$Version" "/DMyOutputBaseFilename=$outputBase"
+if ($LASTEXITCODE -ne 0) {
+    throw "Inno Setup compile failed with exit code $LASTEXITCODE."
+}
 
 Write-Host "[CrocDrop] Installer created in .\installer_output"
