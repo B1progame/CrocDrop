@@ -95,7 +95,26 @@ Manual flow:
 Automated flow (PowerShell):
 
 ```powershell
-.\installer\build_installer.ps1 -Version 1.1.0
+.\installer\build_installer.ps1 -Version 1.1.1
+```
+
+## Publish Release (No Manual Asset Upload)
+
+After building the installer, publish/update the GitHub release and upload the `.exe` asset automatically.
+
+Prerequisite:
+- Set `GITHUB_TOKEN` (PAT with `repo` scope).
+
+PowerShell:
+
+```powershell
+.\installer\publish_release.ps1 -Version 1.1.1
+```
+
+Batch (uses version from `app/version.py` if omitted):
+
+```bat
+installer\publish_release.bat
 ```
 
 ## Key Safety Constraints in App

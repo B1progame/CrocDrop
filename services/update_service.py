@@ -23,6 +23,7 @@ class ReleaseAsset:
     name: str
     url: str
     size: int
+    kind: str
 
 
 @dataclass(slots=True)
@@ -69,27 +70,36 @@ class UpdateService:
         return latest.strip().lower() != current.strip().lower()
 
     def _select_asset(self, assets: list[dict]) -> ReleaseAsset:
-        candidates: list[ReleaseAsset] = []
+        installer_candidates: list[ReleaseAsset] = []
+        zip_candidates: list[ReleaseAsset] = []
         for raw in assets:
             name = str(raw.get("name", "")).strip()
             url = str(raw.get("browser_download_url", "")).strip()
             size = int(raw.get("size", 0) or 0)
-            if not name.lower().endswith(".zip"):
-                continue
             if not url.startswith(self.RELEASE_PREFIX):
                 continue
-            candidates.append(ReleaseAsset(name=name, url=url, size=size))
+            lower_name = name.lower()
+            if lower_name.endswith(".exe"):
+                installer_candidates.append(ReleaseAsset(name=name, url=url, size=size, kind="installer"))
+            elif lower_name.endswith(".zip"):
+                zip_candidates.append(ReleaseAsset(name=name, url=url, size=size, kind="zip"))
 
-        if not candidates:
-            raise UpdateServiceError("No update ZIP asset was found in the latest GitHub release.")
+        preferred_keywords = ("crocdrop", "setup", "installer", "windows", "win", "x64", "amd64")
 
-        preferred_keywords = ("windows", "win", "x64", "amd64")
-        scored = sorted(
-            candidates,
-            key=lambda c: sum(1 for kw in preferred_keywords if kw in c.name.lower()),
-            reverse=True,
-        )
-        return scored[0]
+        def _best(candidates: list[ReleaseAsset]) -> ReleaseAsset:
+            scored = sorted(
+                candidates,
+                key=lambda c: sum(1 for kw in preferred_keywords if kw in c.name.lower()),
+                reverse=True,
+            )
+            return scored[0]
+
+        if installer_candidates:
+            return _best(installer_candidates)
+        if zip_candidates:
+            return _best(zip_candidates)
+
+        raise UpdateServiceError("No update installer (.exe) or ZIP asset was found in the latest GitHub release.")
 
     def get_latest_release(self) -> ReleaseInfo:
         try:
@@ -131,14 +141,14 @@ class UpdateService:
         updates_dir = app_cache_dir() / "updates"
         updates_dir.mkdir(parents=True, exist_ok=True)
         safe_tag = re.sub(r"[^a-zA-Z0-9._-]+", "_", release.tag_name)
-        archive_path = updates_dir / f"{safe_tag}-{release.asset.name}"
+        package_path = updates_dir / f"{safe_tag}-{release.asset.name}"
 
         if status_callback:
             status_callback(f"Downloading {release.asset.name} ...")
 
         req = Request(release.asset.url, headers={"User-Agent": f"{APP_NAME}/{APP_VERSION}"})
         try:
-            with urlopen(req, timeout=60) as response, archive_path.open("wb") as out:
+            with urlopen(req, timeout=60) as response, package_path.open("wb") as out:
                 total = int(response.headers.get("Content-Length", "0") or 0)
                 downloaded = 0
                 while True:
@@ -155,9 +165,9 @@ class UpdateService:
             raise UpdateServiceError(f"Download failed: {exc.reason}") from exc
 
         if progress_callback:
-            final_size = archive_path.stat().st_size if archive_path.exists() else 0
+            final_size = package_path.stat().st_size if package_path.exists() else 0
             progress_callback(final_size, final_size)
-        return archive_path
+        return package_path
 
     def download_latest_update(self, progress_callback=None, status_callback=None) -> UpdateResult:
         if status_callback:
@@ -172,13 +182,14 @@ class UpdateService:
                 message=f"You are already on the latest version ({current}).",
             )
 
-        archive_path = self.download_release(release, progress_callback=progress_callback, status_callback=status_callback)
+        package_path = self.download_release(release, progress_callback=progress_callback, status_callback=status_callback)
+        package_kind = "installer" if release.asset.kind == "installer" else "archive"
         return UpdateResult(
             status="downloaded",
             current_version=current,
             latest_version=release.tag_name,
-            message=f"Downloaded update {release.tag_name}.",
-            archive_path=str(archive_path),
+            message=f"Downloaded {package_kind} for update {release.tag_name}.",
+            archive_path=str(package_path),
         )
 
     def _resolve_runtime_paths(self) -> tuple[Path, str, str]:
@@ -200,7 +211,7 @@ class UpdateService:
         except Exception as exc:
             raise UpdateServiceError(f"Install directory is not writable: {app_dir}") from exc
 
-    def _build_updater_script(self, script_path: Path) -> None:
+    def _build_zip_updater_script(self, script_path: Path) -> None:
         script = r"""
 param(
     [Parameter(Mandatory = $true)][string]$ArchivePath,
@@ -255,18 +266,80 @@ if ($restartArgs.Count -gt 0) {
 """
         script_path.write_text(script.strip() + "\n", encoding="utf-8")
 
+    def _build_installer_updater_script(self, script_path: Path) -> None:
+        script = r"""
+param(
+    [Parameter(Mandatory = $true)][string]$InstallerPath,
+    [Parameter(Mandatory = $true)][string]$AppDir,
+    [Parameter(Mandatory = $true)][string]$RestartExe,
+    [Parameter(Mandatory = $false)][string]$RestartArgsJson = "[]",
+    [Parameter(Mandatory = $true)][int]$SourcePid
+)
+
+$ErrorActionPreference = "Stop"
+
+Start-Sleep -Milliseconds 600
+try {
+    Wait-Process -Id $SourcePid -Timeout 120 -ErrorAction Stop
+} catch {
+}
+Start-Sleep -Milliseconds 800
+
+$installerArgs = @(
+    "/SP-",
+    "/VERYSILENT",
+    "/SUPPRESSMSGBOXES",
+    "/NORESTART",
+    "/CLOSEAPPLICATIONS",
+    "/FORCECLOSEAPPLICATIONS"
+)
+$proc = Start-Process -FilePath $InstallerPath -ArgumentList $installerArgs -Wait -PassThru
+if ($proc.ExitCode -ne 0) {
+    exit $proc.ExitCode
+}
+Remove-Item -LiteralPath $InstallerPath -Force -ErrorAction SilentlyContinue
+
+$restartArgs = @()
+if ($RestartArgsJson) {
+    try {
+        $parsed = ConvertFrom-Json -InputObject $RestartArgsJson
+        if ($parsed -is [System.Array]) {
+            $restartArgs = @($parsed)
+        } elseif ($parsed) {
+            $restartArgs = @($parsed.ToString())
+        }
+    } catch {
+    }
+}
+
+if ($restartArgs.Count -gt 0) {
+    Start-Process -FilePath $RestartExe -WorkingDirectory $AppDir -ArgumentList $restartArgs | Out-Null
+} else {
+    Start-Process -FilePath $RestartExe -WorkingDirectory $AppDir | Out-Null
+}
+"""
+        script_path.write_text(script.strip() + "\n", encoding="utf-8")
+
     def apply_update_and_restart(self, archive_path: str) -> None:
-        source_archive = Path(archive_path).expanduser().resolve()
-        if not source_archive.exists():
-            raise UpdateServiceError("Downloaded update archive was not found.")
+        package_path = Path(archive_path).expanduser().resolve()
+        if not package_path.exists():
+            raise UpdateServiceError("Downloaded update package was not found.")
 
         app_dir, restart_exe, restart_args_json = self._resolve_runtime_paths()
-        self._assert_install_writable(app_dir)
 
         updates_dir = app_cache_dir() / "updates"
         updates_dir.mkdir(parents=True, exist_ok=True)
-        script_path = updates_dir / "apply_update.ps1"
-        self._build_updater_script(script_path)
+        lower_name = package_path.name.lower()
+        if lower_name.endswith(".exe"):
+            script_path = updates_dir / "apply_installer_update.ps1"
+            self._build_installer_updater_script(script_path)
+        elif lower_name.endswith(".zip"):
+            # ZIP in-place replacement needs write access to the install folder.
+            self._assert_install_writable(app_dir)
+            script_path = updates_dir / "apply_zip_update.ps1"
+            self._build_zip_updater_script(script_path)
+        else:
+            raise UpdateServiceError("Unsupported update package type. Expected .exe or .zip.")
 
         creationflags = 0
         if sys.platform.startswith("win"):
@@ -279,8 +352,8 @@ if ($restartArgs.Count -gt 0) {
             "Bypass",
             "-File",
             str(script_path),
-            "-ArchivePath",
-            str(source_archive),
+            "-ArchivePath" if lower_name.endswith(".zip") else "-InstallerPath",
+            str(package_path),
             "-AppDir",
             str(app_dir),
             "-RestartExe",
@@ -290,6 +363,5 @@ if ($restartArgs.Count -gt 0) {
             "-SourcePid",
             str(os.getpid()),
         ]
-        self.log.info("Launching updater script for archive %s", source_archive)
+        self.log.info("Launching updater script for package %s", package_path)
         subprocess.Popen(cmd, creationflags=creationflags)
-

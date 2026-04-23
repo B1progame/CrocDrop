@@ -7,7 +7,7 @@ if "%VERSION%"=="" (
   for /f "tokens=2 delims== " %%v in ('findstr /B /C:"APP_VERSION" app\version.py') do set VERSION=%%~v
 )
 set VERSION=%VERSION:"=%
-if "%VERSION%"=="" set VERSION=1.1.0
+if "%VERSION%"=="" set VERSION=1.1.1
 
 if not exist ".venv\Scripts\python.exe" (
   echo [CrocDrop] Creating virtual environment...

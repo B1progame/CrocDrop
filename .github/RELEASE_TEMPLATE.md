@@ -1,24 +1,21 @@
-# CrocDrop v1.1.0 - In-App Updater + Stability Fixes
+# CrocDrop v1.1.1 - Silent Installer Updates + Release Upload Automation
 
 ## Highlights
-- Added an in-app updater in **Settings** (`Update App` button).
-- App now checks GitHub releases, compares versions, and downloads updates directly.
-- Added a dedicated update popup with a live download progress bar.
-- Update flow now closes CrocDrop, applies the downloaded update package, and restarts automatically (no installer rerun required).
-- Fixed startup warning: `QFont::setPointSize: Point size <= 0 (-1)`.
+- In-app updater now supports **installer `.exe` assets** and runs upgrades silently (no click-through wizard).
+- Added automated GitHub release upload scripts to publish the newest installer asset without manual drag-and-drop.
+- Synced version defaults and metadata to `1.1.1` across app and installer tooling.
 
 ## What Changed
-- New app update service for release check, download, and restart flow.
-- Added app version metadata used by updater checks.
-- Wired updater into application context and Settings UI.
-- Added threaded update worker so UI remains responsive during downloads.
-- Added safer fallback font initialization to prevent invalid font-size warnings at startup.
+- Updater asset selection now prefers `.exe` installer assets, with `.zip` fallback.
+- Silent installer update flow added using Inno Setup silent flags.
+- Added `installer/publish_release.ps1` and `installer/publish_release.bat`.
+- Updated build/publish fallbacks and docs to current version.
 
 ## User Impact
-- Updating CrocDrop is now one click from Settings.
-- Cleaner startup output with the font warning resolved.
-- Better reliability for future version upgrades.
+- Users can update from Settings without going through installer UI.
+- Releases can be published with the correct installer asset in one command.
+- Better consistency between tags, installer filenames, and in-app version checks.
 
 ## Notes
-- Update ZIP assets should be attached to GitHub releases for updater compatibility.
-- If CrocDrop is installed in a protected directory, update apply may require elevated permissions.
+- For updater compatibility, each release should include a Windows installer `.exe` asset.
+- If installed in a protected location, Windows may still require elevation during update apply.
