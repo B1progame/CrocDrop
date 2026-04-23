@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,6 +36,11 @@ def _build_app_icon() -> QIcon:
     logo_path = Path(__file__).resolve().parents[1] / "assets" / "crocdrop_lock_logo.svg"
     icon = QIcon()
     if not logo_path.exists():
+        # In frozen installer builds, fall back to the executable icon.
+        if getattr(sys, "frozen", False):
+            exe_icon = QIcon(str(Path(sys.executable)))
+            if not exe_icon.isNull():
+                return exe_icon
         return icon
 
     renderer = QSvgRenderer(str(logo_path))

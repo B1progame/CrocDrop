@@ -124,7 +124,7 @@ if (Test-Path $distDir) {
     }
 }
 
-.\.venv\Scripts\python.exe -m PyInstaller --noconfirm --windowed --name CrocDrop --icon ".\installer\CrocDrop.ico" main.py
+.\.venv\Scripts\python.exe -m PyInstaller --noconfirm --windowed --name CrocDrop --icon ".\installer\CrocDrop.ico" --add-data ".\assets;assets" main.py
 if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller failed with exit code $LASTEXITCODE."
 }
