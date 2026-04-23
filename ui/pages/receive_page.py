@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QVBoxLayout, QWidget
 
-from ui.components.common import Card, PageHeader
+from ui.components.common import Card, CollapsibleOutputSection, PageHeader
 
 
 class ReceivePage(QWidget):
@@ -60,14 +60,16 @@ class ReceivePage(QWidget):
         form.layout.addLayout(action_row)
         form.layout.addWidget(self.progress)
 
-        logs = Card("Live Output")
-        self.output = QPlainTextEdit()
-        self.output.setReadOnly(True)
-        self.output.document().setMaximumBlockCount(1200)
-        logs.layout.addWidget(self.output)
+        self.output_section = CollapsibleOutputSection("Live Output", "Croc receive process stream", max_blocks=1200)
+        self.output = self.output_section.output
 
         root.addWidget(form)
-        root.addWidget(logs, 1)
+        root.addWidget(self.output_section, 1)
+        root.addStretch(0)
+        self._bottom_anchor_index = root.count() - 1
+        self.output_section.expanded_changed.connect(
+            lambda expanded: self._sync_output_layout_stretch(root, expanded)
+        )
 
         browse_btn.clicked.connect(self.browse_destination)
         start_btn.clicked.connect(self.start_receive)
@@ -76,6 +78,13 @@ class ReceivePage(QWidget):
         self.context.transfer_service.transfer_output.connect(self.on_transfer_output)
         self.context.transfer_service.transfer_updated.connect(self.on_transfer_updated)
         self.context.transfer_service.transfer_finished.connect(self.on_transfer_finished)
+
+    def _sync_output_layout_stretch(self, root: QVBoxLayout, expanded: bool) -> None:
+        output_index = root.indexOf(self.output_section)
+        if output_index < 0:
+            return
+        root.setStretch(output_index, 1 if expanded else 0)
+        root.setStretch(self._bottom_anchor_index, 0 if expanded else 1)
 
     def paste_code(self):
         from PySide6.QtGui import QGuiApplication

@@ -1,24 +1,41 @@
+# Virtual environments and local tooling
 .venv/
+venv/
 .vscode/
 .idea/
 
+# Python cache/bytecode
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.py,cover
 
-# Build / packaging artifacts
-build/
-dist/
-*.spec
-installer_output/
-*.exe
-*.zip
-*.7z
-
-# Logs and local state
-*.log
-*.tmp
+# Test, lint, and type-check caches
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Build and packaging artifacts (generated)
+build/
+dist/
+installer_output/
+CrocDrop.spec
+*.exe
+*.zip
+*.7z
+*.msi
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+.tmp-smoke/
+
+# OS cruft
+Thumbs.db
+Desktop.ini
+.DS_Store

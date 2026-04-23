@@ -101,8 +101,8 @@ def apply_theme(app, settings: AppSettings) -> None:
             border: 1px solid {accent};
         }}
         QPushButton#SidebarFooterButton:checked {{
-            background: {accent_gradient_soft};
-            border: 1px solid {accent};
+            background: {palette['surface_0']};
+            border: 1px solid {palette['line_soft']};
         }}
         QPushButton#SidebarFooterButton:focus {{
             border: 1px solid {accent};
@@ -261,6 +261,26 @@ def apply_theme(app, settings: AppSettings) -> None:
         QPushButton#PrimaryButton:hover {{
             background: {accent_gradient};
             border: 0;
+        }}
+        QFrame#CollapsibleHeader {{
+            background: transparent;
+            border: 0;
+        }}
+        QWidget#CollapsibleBody, QWidget#DebugInlineOptions {{
+            background: transparent;
+            border: 0;
+        }}
+        QPushButton#SectionToggleButton {{
+            background: {palette['surface_2']};
+            border: 1px solid {palette['line_soft']};
+            border-radius: 8px;
+            padding: 5px 10px;
+            font-size: 12px;
+            font-weight: 700;
+        }}
+        QPushButton#SectionToggleButton:hover {{
+            background: {palette['hover']};
+            border-color: {accent};
         }}
         QLineEdit, QPlainTextEdit, QTextEdit, QComboBox, QSpinBox, QListWidget, QTableWidget {{
             background: {palette['input_bg']};

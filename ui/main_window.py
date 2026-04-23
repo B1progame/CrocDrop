@@ -1,9 +1,21 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, QRect, QSize, QSignalBlocker, Qt
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import (
+    Property,
+    QEasingCurve,
+    QEvent,
+    QPropertyAnimation,
+    QRect,
+    QRectF,
+    QSize,
+    QSignalBlocker,
+    Qt,
+    QVariantAnimation,
+)
+from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -33,6 +45,53 @@ from ui.pages.settings_page import SettingsPage
 from ui.pages.transfers_page import TransfersPage
 
 
+class SidebarActiveIndicator(QWidget):
+    def __init__(self, parent: QWidget, dark_mode: bool):
+        super().__init__(parent)
+        self._radius = 10.0
+        self._dark_mode = dark_mode
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setAutoFillBackground(False)
+        self.hide()
+
+    def get_radius(self) -> float:
+        return self._radius
+
+    def set_radius(self, radius: float) -> None:
+        self._radius = max(0.0, float(radius))
+        self.update()
+
+    radius = Property(float, get_radius, set_radius)
+
+    def set_dark_mode(self, dark_mode: bool) -> None:
+        self._dark_mode = dark_mode
+        self.update()
+
+    def paintEvent(self, _event) -> None:
+        if self.width() <= 1 or self.height() <= 1:
+            return
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        gradient = QLinearGradient(0, 0, max(1, self.width()), max(1, self.height()))
+        if self._dark_mode:
+            gradient.setColorAt(0.0, QColor(79, 42, 144, 132))
+            gradient.setColorAt(0.58, QColor(140, 69, 255, 132))
+            gradient.setColorAt(1.0, QColor(245, 139, 198, 126))
+            border = QColor(255, 255, 255, 34)
+        else:
+            gradient.setColorAt(0.0, QColor(106, 69, 204, 92))
+            gradient.setColorAt(0.6, QColor(155, 92, 255, 96))
+            gradient.setColorAt(1.0, QColor(232, 115, 180, 92))
+            border = QColor(255, 255, 255, 96)
+
+        painter.setBrush(gradient)
+        painter.setPen(QPen(border, 1))
+        painter.drawRoundedRect(rect, self._radius, self._radius)
+
+
 class MainWindow(QMainWindow):
     def __init__(self, context, debug_peer: bool = False):
         super().__init__()
@@ -52,10 +111,10 @@ class MainWindow(QMainWindow):
         shell_layout.setContentsMargins(0, 0, 0, 0)
         shell_layout.setSpacing(0)
 
-        sidebar = QFrame()
-        sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(236)
-        side_layout = QVBoxLayout(sidebar)
+        self.sidebar = QFrame()
+        self.sidebar.setObjectName("Sidebar")
+        self.sidebar.setFixedWidth(236)
+        side_layout = QVBoxLayout(self.sidebar)
         side_layout.setContentsMargins(14, 14, 14, 14)
         side_layout.setSpacing(10)
 
@@ -102,14 +161,14 @@ class MainWindow(QMainWindow):
         self.nav.setIconSize(QSize(20, 20))
         self._build_nav_items()
         self.footer_buttons: dict[str, QPushButton] = {}
-        footer = self._build_sidebar_footer()
+        self.sidebar_footer = self._build_sidebar_footer()
 
         # Sidebar bug fix: the previous layout added a bottom stretch, which consumed free height and kept
         # navigation items cramped near the top. Giving nav stretch=1 lets it use full height and scroll only if needed.
         side_layout.addWidget(brand_shell)
         side_layout.addWidget(mode)
         side_layout.addWidget(self.nav, 1)
-        side_layout.addWidget(footer)
+        side_layout.addWidget(self.sidebar_footer)
 
         panel = QFrame()
         panel.setObjectName("MainPanel")
@@ -172,19 +231,22 @@ class MainWindow(QMainWindow):
         panel_layout.addWidget(header)
         panel_layout.addWidget(self.pages, 1)
 
-        shell_layout.addWidget(sidebar)
+        shell_layout.addWidget(self.sidebar)
         shell_layout.addWidget(panel, 1)
 
         self.nav.currentRowChanged.connect(self._on_nav_row_changed)
-        self.nav.currentRowChanged.connect(lambda _: self._sync_nav_indicator(animated=True))
         self.nav.verticalScrollBar().valueChanged.connect(lambda _: self._sync_nav_indicator(animated=False))
         self.nav.viewport().installEventFilter(self)
-        self._nav_indicator_anim: QPropertyAnimation | None = None
+        self.sidebar.installEventFilter(self)
+        self.sidebar_footer.installEventFilter(self)
+        for button in self.footer_buttons.values():
+            button.installEventFilter(self)
+        self._active_page_name = ""
+        self._nav_indicator_anim: QVariantAnimation | None = None
+        self._nav_indicator_settle_anim: QVariantAnimation | None = None
         self._page_fade_anim: QPropertyAnimation | None = None
-        self.nav_indicator = QFrame(self.nav.viewport())
+        self.nav_indicator = SidebarActiveIndicator(self.sidebar, self.context.settings_service.get().dark_mode)
         self.nav_indicator.setObjectName("NavIndicator")
-        self.nav_indicator.hide()
-        self.nav_indicator.lower()
         self.home_page.navigate_requested.connect(self.navigate_to)
         self.profile_page.navigate_requested.connect(self.navigate_to)
         self.settings_page.settings_changed.connect(self._on_settings_changed)
@@ -195,7 +257,15 @@ class MainWindow(QMainWindow):
         self.check_croc()
 
     def eventFilter(self, watched, event):
-        if watched is self.nav.viewport() and event.type() in {QEvent.Type.Resize, QEvent.Type.Show, QEvent.Type.LayoutRequest}:
+        if not hasattr(self, "nav_indicator"):
+            return super().eventFilter(watched, event)
+        watched_widgets = [
+            self.nav.viewport(),
+            getattr(self, "sidebar", None),
+            getattr(self, "sidebar_footer", None),
+            *getattr(self, "footer_buttons", {}).values(),
+        ]
+        if watched in watched_widgets and event.type() in {QEvent.Type.Resize, QEvent.Type.Show, QEvent.Type.LayoutRequest, QEvent.Type.Move}:
             self._sync_nav_indicator(animated=False)
         return super().eventFilter(watched, event)
 
@@ -270,6 +340,7 @@ class MainWindow(QMainWindow):
     def _show_page(self, name: str, animated: bool = True, sync_nav: bool = True):
         if name not in self.page_indices:
             return
+        self._active_page_name = name
 
         if sync_nav:
             with QSignalBlocker(self.nav):
@@ -315,6 +386,7 @@ class MainWindow(QMainWindow):
 
     def _on_settings_changed(self) -> None:
         self._refresh_identity_surfaces()
+        self.nav_indicator.set_dark_mode(self.context.settings_service.get().dark_mode)
         if self.pages.currentWidget() is self.profile_page:
             self.profile_page.refresh()
 
@@ -343,33 +415,138 @@ class MainWindow(QMainWindow):
         self._page_fade_anim.start()
 
     def _sync_nav_indicator(self, animated: bool) -> None:
-        row = self.nav.currentRow()
-        if row < 0 or row >= self.nav.count():
-            self.nav_indicator.hide()
-            return
-        item = self.nav.item(row)
-        rect = self.nav.visualItemRect(item)
-        if not rect.isValid():
+        target = self._indicator_target_for_page(self._active_page_name)
+        if target is None:
             self.nav_indicator.hide()
             return
 
-        target = QRect(rect.x() + 4, rect.y() + 2, max(12, rect.width() - 8), max(12, rect.height() - 4))
+        target_rect, target_radius = target
+        was_hidden = self.nav_indicator.isHidden() or self.nav_indicator.geometry().isNull()
         self.nav_indicator.show()
-        self.nav_indicator.lower()
+        self.nav_indicator.raise_()
 
-        if not animated or self.nav_indicator.geometry().isNull():
-            self.nav_indicator.setGeometry(target)
+        if not animated or was_hidden:
+            self._stop_nav_indicator_animations()
+            self.nav_indicator.setGeometry(target_rect)
+            self.nav_indicator.set_radius(target_radius)
             return
 
-        if self._nav_indicator_anim:
-            self._nav_indicator_anim.stop()
-            self._nav_indicator_anim.deleteLater()
-        self._nav_indicator_anim = QPropertyAnimation(self.nav_indicator, b"geometry", self)
-        self._nav_indicator_anim.setDuration(180)
+        if self.nav_indicator.geometry() == target_rect and abs(self.nav_indicator.radius - target_radius) < 0.2:
+            return
+
+        self._animate_nav_indicator_to(target_rect, target_radius)
+
+    def _indicator_target_for_page(self, page_name: str) -> tuple[QRect, float] | None:
+        if page_name in self.nav_rows:
+            row = self.nav_rows[page_name]
+            item = self.nav.item(row)
+            if item is None:
+                return None
+            rect = self.nav.visualItemRect(item)
+            if not rect.isValid():
+                return None
+            top_left = self.nav.viewport().mapTo(self.sidebar, rect.topLeft())
+            target = QRect(top_left.x() + 4, top_left.y() + 2, max(12, rect.width() - 8), max(12, rect.height() - 4))
+            return target, 10.0
+
+        button = self.footer_buttons.get(page_name)
+        if button is None:
+            return None
+        top_left = button.mapTo(self.sidebar, button.rect().topLeft())
+        target = QRect(top_left.x(), top_left.y(), button.width(), button.height())
+        return target, min(target.width(), target.height()) / 2.0
+
+    def _stop_nav_indicator_animations(self) -> None:
+        for anim_name in ("_nav_indicator_anim", "_nav_indicator_settle_anim"):
+            anim = getattr(self, anim_name, None)
+            if anim:
+                anim.stop()
+                anim.deleteLater()
+                setattr(self, anim_name, None)
+
+    def _animate_nav_indicator_to(self, target_rect: QRect, target_radius: float) -> None:
+        self._stop_nav_indicator_animations()
+        start_rect = QRect(self.nav_indicator.geometry())
+        start_radius = self.nav_indicator.radius
+        dx = target_rect.center().x() - start_rect.center().x()
+        dy = target_rect.center().y() - start_rect.center().y()
+        distance = math.hypot(dx, dy)
+        size_delta = abs(target_rect.width() - start_rect.width()) + abs(target_rect.height() - start_rect.height())
+        duration = min(320, max(190, int(170 + distance * 0.22 + size_delta * 0.18)))
+
+        self._nav_indicator_anim = QVariantAnimation(self)
+        self._nav_indicator_anim.setDuration(duration)
         self._nav_indicator_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self._nav_indicator_anim.setStartValue(self.nav_indicator.geometry())
-        self._nav_indicator_anim.setEndValue(target)
+        self._nav_indicator_anim.setStartValue(0.0)
+        self._nav_indicator_anim.setEndValue(1.0)
+
+        def _step(value: float) -> None:
+            t = float(value)
+            rect = self._interpolate_rect(start_rect, target_rect, t)
+            radius = start_radius + (target_radius - start_radius) * t
+            self.nav_indicator.setGeometry(rect)
+            self.nav_indicator.set_radius(radius)
+            self.nav_indicator.raise_()
+
+        def _finish() -> None:
+            self.nav_indicator.setGeometry(target_rect)
+            self.nav_indicator.set_radius(target_radius)
+            self._start_nav_indicator_settle(target_rect, target_radius, dx, dy)
+
+        self._nav_indicator_anim.valueChanged.connect(_step)
+        self._nav_indicator_anim.finished.connect(_finish)
         self._nav_indicator_anim.start()
+
+    def _start_nav_indicator_settle(self, target_rect: QRect, target_radius: float, dx: float, dy: float) -> None:
+        distance = math.hypot(dx, dy)
+        if distance <= 0.5:
+            return
+        unit_x = dx / distance
+        unit_y = dy / distance
+        amplitude = min(2.6, max(0.8, distance * 0.012))
+
+        self._nav_indicator_settle_anim = QVariantAnimation(self)
+        self._nav_indicator_settle_anim.setDuration(135)
+        self._nav_indicator_settle_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._nav_indicator_settle_anim.setStartValue(0.0)
+        self._nav_indicator_settle_anim.setEndValue(1.0)
+
+        def _step(value: float) -> None:
+            t = float(value)
+            damped = math.sin(t * math.pi * 2.0) * (1.0 - t)
+            offset_x = unit_x * amplitude * damped
+            offset_y = unit_y * amplitude * damped
+            scale = 1.0 + 0.012 * damped
+            width = max(12, target_rect.width() * scale)
+            height = max(12, target_rect.height() * (1.0 - 0.006 * damped))
+            center_x = target_rect.center().x() + offset_x
+            center_y = target_rect.center().y() + offset_y
+            rect = QRect(
+                round(center_x - width / 2.0),
+                round(center_y - height / 2.0),
+                round(width),
+                round(height),
+            )
+            self.nav_indicator.setGeometry(rect)
+            self.nav_indicator.set_radius(target_radius * min(width / target_rect.width(), height / target_rect.height()))
+            self.nav_indicator.raise_()
+
+        def _finish() -> None:
+            self.nav_indicator.setGeometry(target_rect)
+            self.nav_indicator.set_radius(target_radius)
+
+        self._nav_indicator_settle_anim.valueChanged.connect(_step)
+        self._nav_indicator_settle_anim.finished.connect(_finish)
+        self._nav_indicator_settle_anim.start()
+
+    @staticmethod
+    def _interpolate_rect(start: QRect, end: QRect, t: float) -> QRect:
+        return QRect(
+            round(start.x() + (end.x() - start.x()) * t),
+            round(start.y() + (end.y() - start.y()) * t),
+            round(start.width() + (end.width() - start.width()) * t),
+            round(start.height() + (end.height() - start.height()) * t),
+        )
 
     def check_croc(self):
         info = self.context.croc_manager.detect_binary()

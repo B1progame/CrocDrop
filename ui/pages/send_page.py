@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QVBoxLayout, QWidget
 
-from ui.components.common import Card, DropList, PageHeader
+from ui.components.common import Card, CollapsibleOutputSection, DropList, PageHeader
 
 
 class SendPage(QWidget):
@@ -65,15 +65,17 @@ class SendPage(QWidget):
         code_card.layout.addLayout(code_row)
         code_card.layout.addWidget(self.progress)
 
-        runtime = Card("Live Output")
-        self.output = QPlainTextEdit()
-        self.output.setReadOnly(True)
-        self.output.document().setMaximumBlockCount(1200)
-        runtime.layout.addWidget(self.output)
+        self.output_section = CollapsibleOutputSection("Live Output", "Croc send process stream", max_blocks=1200)
+        self.output = self.output_section.output
 
         root.addWidget(picker)
         root.addWidget(code_card)
-        root.addWidget(runtime, 1)
+        root.addWidget(self.output_section, 1)
+        root.addStretch(0)
+        self._bottom_anchor_index = root.count() - 1
+        self.output_section.expanded_changed.connect(
+            lambda expanded: self._sync_output_layout_stretch(root, expanded)
+        )
 
         btn_file.clicked.connect(self.pick_files)
         btn_folder.clicked.connect(self.pick_folder)
@@ -86,6 +88,13 @@ class SendPage(QWidget):
         self.context.transfer_service.transfer_updated.connect(self.on_transfer_updated)
         self.context.transfer_service.transfer_finished.connect(self.on_transfer_finished)
         self.context.transfer_service.next_code_ready.connect(self.on_next_code_ready)
+
+    def _sync_output_layout_stretch(self, root: QVBoxLayout, expanded: bool) -> None:
+        output_index = root.indexOf(self.output_section)
+        if output_index < 0:
+            return
+        root.setStretch(output_index, 1 if expanded else 0)
+        root.setStretch(self._bottom_anchor_index, 0 if expanded else 1)
 
     def pick_files(self):
         files, _ = QFileDialog.getOpenFileNames(self, "Select files")
