@@ -1,8 +1,47 @@
 from __future__ import annotations
 
-from PySide6.QtGui import QFont
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont, QGuiApplication
 
 from models.settings import AppSettings
+
+THEME_DARK = "dark"
+THEME_LIGHT = "light"
+THEME_SYSTEM = "system"
+THEME_MODE_OPTIONS: tuple[tuple[str, str], ...] = (
+    (THEME_DARK, "Dark"),
+    (THEME_LIGHT, "Light"),
+    (THEME_SYSTEM, "System"),
+)
+
+
+def normalize_theme_mode(theme_mode: str | None, dark_mode: bool = True) -> str:
+    if theme_mode in {THEME_DARK, THEME_LIGHT, THEME_SYSTEM}:
+        return theme_mode
+    return THEME_DARK if dark_mode else THEME_LIGHT
+
+
+def system_prefers_dark(app=None) -> bool:
+    try:
+        candidate = app or QGuiApplication.instance()
+        if candidate is not None:
+            scheme = candidate.styleHints().colorScheme()
+            if scheme == Qt.ColorScheme.Light:
+                return False
+            if scheme == Qt.ColorScheme.Dark:
+                return True
+    except Exception:
+        pass
+    return True
+
+
+def resolve_dark_mode(settings: AppSettings, app=None) -> bool:
+    mode = normalize_theme_mode(settings.theme_mode, settings.dark_mode)
+    if mode == THEME_DARK:
+        return True
+    if mode == THEME_LIGHT:
+        return False
+    return system_prefers_dark(app)
 
 
 def apply_theme(app, settings: AppSettings) -> None:
@@ -13,6 +52,9 @@ def apply_theme(app, settings: AppSettings) -> None:
         fallback = QFont(base_font)
         fallback.setPointSize(10)
         app.setFont(fallback)
+
+    settings.theme_mode = normalize_theme_mode(settings.theme_mode, settings.dark_mode)
+    settings.dark_mode = resolve_dark_mode(settings, app)
 
     accent = settings.accent_color or "#8f5cff"
     if settings.dark_mode:
@@ -31,6 +73,8 @@ def apply_theme(app, settings: AppSettings) -> None:
             "pressed": "#1a2a3f",
             "success": "#49d59e",
             "danger": "#ff6f6f",
+            "theme_track": "rgba(11, 17, 26, 0.62)",
+            "theme_border": "#2b3a50",
         }
         accent_gradient = "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4f2a90, stop:0.55 #8c45ff, stop:1 #f58bc6)"
         accent_gradient_soft = "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(79,42,144,140), stop:1 rgba(245,139,198,140))"
@@ -50,6 +94,8 @@ def apply_theme(app, settings: AppSettings) -> None:
             "pressed": "#dfebf8",
             "success": "#1f9768",
             "danger": "#c23d3d",
+            "theme_track": "rgba(255, 255, 255, 0.9)",
+            "theme_border": "#d6deea",
         }
         accent_gradient = "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6a45cc, stop:0.6 #9b5cff, stop:1 #e873b4)"
         accent_gradient_soft = "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(106,69,204,90), stop:1 rgba(232,115,180,90))"
@@ -76,6 +122,39 @@ def apply_theme(app, settings: AppSettings) -> None:
             background: {palette['surface_2']};
             border: 1px solid {palette['line']};
             border-radius: 14px;
+        }}
+        QWidget#SidebarFooterCluster {{
+            background: transparent;
+        }}
+        QFrame#SidebarThemeTrack {{
+            background: {palette['theme_track']};
+            border: 1px solid {palette['theme_border']};
+            border-radius: 22px;
+        }}
+        QPushButton#SidebarThemeButton {{
+            min-width: 40px;
+            max-width: 40px;
+            min-height: 40px;
+            max-height: 40px;
+            padding: 0;
+            border: 0;
+            border-radius: 20px;
+            background: transparent;
+        }}
+        QPushButton#SidebarThemeButton:hover {{
+            background: transparent;
+            border: 0;
+        }}
+        QPushButton#SidebarThemeButton:pressed {{
+            background: transparent;
+            border: 0;
+        }}
+        QPushButton#SidebarThemeButton:checked {{
+            background: transparent;
+            border: 0;
+        }}
+        QPushButton#SidebarThemeButton:focus {{
+            border: 1px solid {accent};
         }}
         QFrame#SidebarFooter {{
             background: {palette['surface_2']};

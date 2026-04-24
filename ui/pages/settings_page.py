@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
+from PySide6.QtCore import QObject, QSignalBlocker, QThread, Qt, Signal, Slot
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QApplication,
@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 
 from app.version import APP_VERSION
 from ui.components.common import Card, PageHeader
-from ui.theme import apply_theme
+from ui.theme import THEME_MODE_OPTIONS, apply_theme, normalize_theme_mode
 
 
 class UpdateWorker(QObject):
@@ -128,8 +128,10 @@ class SettingsPage(QWidget):
         self.auto_open.setChecked(settings.auto_open_received_folder)
         self.remember_last = QCheckBox("Enabled")
         self.remember_last.setChecked(settings.remember_last_folders)
-        self.dark_mode = QCheckBox("Enabled")
-        self.dark_mode.setChecked(settings.dark_mode)
+        self.theme_mode = QComboBox()
+        for value, label in THEME_MODE_OPTIONS:
+            self.theme_mode.addItem(label, value)
+        self.refresh_theme_mode_control()
 
         self.accent = QComboBox()
         self.accent.addItems(["#8f5cff", "#b06cff", "#ff7cc5", "#35c9a5"])
@@ -167,7 +169,13 @@ class SettingsPage(QWidget):
             "Visual defaults and app-wide memory behavior.",
         )
         row = 0
-        row = self._add_setting_row(general_form, row, "Dark mode", "Use the premium dark appearance for the whole app shell.", self.dark_mode)
+        row = self._add_setting_row(
+            general_form,
+            row,
+            "Theme mode",
+            "Choose dark, light, or follow the operating system appearance.",
+            self.theme_mode,
+        )
         row = self._add_setting_row(general_form, row, "Accent color", "Primary accent for focus rings and highlights.", self.accent)
         row = self._add_setting_row(general_form, row, "Remember last folders", "Keep the most recent send/receive directories for faster reuse.", self.remember_last)
         row = self._add_setting_row(general_form, row, "Log retention", "Automatically prune old logs older than this window.", self.log_retention)
@@ -394,7 +402,7 @@ class SettingsPage(QWidget):
         s.ask_before_receiving = self.ask_before.isChecked()
         s.auto_open_received_folder = self.auto_open.isChecked()
         s.remember_last_folders = self.remember_last.isChecked()
-        s.dark_mode = self.dark_mode.isChecked()
+        s.theme_mode = normalize_theme_mode(self.theme_mode.currentData(), s.dark_mode)
         s.accent_color = self.accent.currentText()
         s.relay_mode = self.relay_mode.currentText()
         s.custom_relay = self.custom_relay.text().strip()
@@ -403,12 +411,23 @@ class SettingsPage(QWidget):
         s.upload_limit_kbps = self._read_bandwidth_limit_kbps(self.upload_unlimited, self.upload_limit)
         s.download_limit_kbps = self._read_bandwidth_limit_kbps(self.download_unlimited, self.download_limit)
         s.log_retention_days = self.log_retention.value()
+        apply_theme(self.app, s)
         self.context.settings_service.save(s)
         self.context.log_service.prune_old_logs(s.log_retention_days)
-        apply_theme(self.app, s)
+        self.refresh_theme_mode_control()
         self.refresh_account_section()
         self.refresh_debug_controls()
         self.settings_changed.emit()
+
+    def refresh_theme_mode_control(self) -> None:
+        settings = self.context.settings_service.get()
+        mode = normalize_theme_mode(settings.theme_mode, settings.dark_mode)
+        index = self.theme_mode.findData(mode)
+        if index < 0:
+            return
+        blocker = QSignalBlocker(self.theme_mode)
+        self.theme_mode.setCurrentIndex(index)
+        del blocker
 
     def delete_binary(self):
         path_text = self.binary_path.text().strip()

@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QGraphicsOpacityEffect,
 )
 
+from ui.components.theme_switcher import ThemeSwitcher
 from ui.components.toast_popup import ToastPopup
 from ui.pages.about_page import AboutPage
 from ui.pages.debug_page import DebugPage
@@ -43,6 +44,7 @@ from ui.pages.receive_page import ReceivePage
 from ui.pages.send_page import SendPage
 from ui.pages.settings_page import SettingsPage
 from ui.pages.transfers_page import TransfersPage
+from ui.theme import apply_theme
 
 
 class SidebarActiveIndicator(QWidget):
@@ -162,13 +164,21 @@ class MainWindow(QMainWindow):
         self._build_nav_items()
         self.footer_buttons: dict[str, QPushButton] = {}
         self.sidebar_footer = self._build_sidebar_footer()
+        current_settings = self.context.settings_service.get()
+        self.theme_switcher = ThemeSwitcher(
+            icon_dir=self.icon_dir,
+            theme_mode=current_settings.theme_mode,
+            dark_mode=current_settings.dark_mode,
+        )
+        self.theme_switcher.themeChanged.connect(self._on_sidebar_theme_changed)
+        self.sidebar_footer_section = self._build_sidebar_footer_section()
 
         # Sidebar bug fix: the previous layout added a bottom stretch, which consumed free height and kept
         # navigation items cramped near the top. Giving nav stretch=1 lets it use full height and scroll only if needed.
         side_layout.addWidget(brand_shell)
         side_layout.addWidget(mode)
         side_layout.addWidget(self.nav, 1)
-        side_layout.addWidget(self.sidebar_footer)
+        side_layout.addWidget(self.sidebar_footer_section)
 
         panel = QFrame()
         panel.setObjectName("MainPanel")
@@ -250,6 +260,10 @@ class MainWindow(QMainWindow):
         self.home_page.navigate_requested.connect(self.navigate_to)
         self.profile_page.navigate_requested.connect(self.navigate_to)
         self.settings_page.settings_changed.connect(self._on_settings_changed)
+        try:
+            QApplication.instance().styleHints().colorSchemeChanged.connect(self._on_system_color_scheme_changed)
+        except Exception:
+            pass
         self.context.history_service.history_changed.connect(self.home_page.refresh)
         self.context.transfer_service.transfer_finished.connect(self.on_transfer_finished)
 
@@ -326,6 +340,16 @@ class MainWindow(QMainWindow):
 
         return footer
 
+    def _build_sidebar_footer_section(self) -> QWidget:
+        section = QWidget()
+        section.setObjectName("SidebarFooterCluster")
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        layout.addWidget(self.theme_switcher, 0, Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(self.sidebar_footer)
+        return section
+
     def navigate_to(self, page_name: str, animated: bool = True):
         self._show_page(page_name, animated=animated, sync_nav=True)
 
@@ -385,10 +409,29 @@ class MainWindow(QMainWindow):
         self.user_badge.setText(f"User: {current_profile}")
 
     def _on_settings_changed(self) -> None:
+        settings = self.context.settings_service.get()
         self._refresh_identity_surfaces()
-        self.nav_indicator.set_dark_mode(self.context.settings_service.get().dark_mode)
+        self.nav_indicator.set_dark_mode(settings.dark_mode)
+        self.theme_switcher.set_dark_mode(settings.dark_mode)
+        self.theme_switcher.set_theme_mode(settings.theme_mode, animated=False, emit_signal=False)
+        self.settings_page.refresh_theme_mode_control()
         if self.pages.currentWidget() is self.profile_page:
             self.profile_page.refresh()
+
+    def _on_sidebar_theme_changed(self, theme_mode: str) -> None:
+        settings = self.context.settings_service.get()
+        settings.theme_mode = theme_mode
+        apply_theme(QApplication.instance(), settings)
+        self.context.settings_service.save(settings)
+        self._on_settings_changed()
+
+    def _on_system_color_scheme_changed(self, _scheme) -> None:
+        settings = self.context.settings_service.get()
+        if settings.theme_mode != "system":
+            return
+        apply_theme(QApplication.instance(), settings)
+        self.context.settings_service.save(settings)
+        self._on_settings_changed()
 
     def _fade_current_page(self) -> None:
         widget = self.pages.currentWidget()
