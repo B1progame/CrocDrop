@@ -67,6 +67,7 @@ def apply_theme(app, settings: AppSettings) -> None:
             "line_soft": "#212d3f",
             "text": "#e6edf7",
             "text_soft": "#a0afc5",
+            "selected_text": "#ffffff",
             "input_bg": "#101722",
             "input_bg_alt": "#0f1621",
             "hover": "#22334a",
@@ -90,8 +91,9 @@ def apply_theme(app, settings: AppSettings) -> None:
             "surface_2": "#f4f7fb",
             "line": "#cfd8e4",
             "line_soft": "#dbe2ec",
-            "text": "#1a2634",
-            "text_soft": "#5f7186",
+            "text": "#0f1726",
+            "text_soft": "#2c3d52",
+            "selected_text": "#0f1726",
             "input_bg": "#ffffff",
             "input_bg_alt": "#f8fbff",
             "hover": "#ecf3fb",
@@ -262,7 +264,7 @@ def apply_theme(app, settings: AppSettings) -> None:
         }}
         QListWidget#NavList::item:selected {{
             background: transparent;
-            color: #ffffff;
+            color: {palette['selected_text']};
             font-weight: 700;
         }}
         QFrame#NavIndicator {{

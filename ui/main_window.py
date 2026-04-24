@@ -4,6 +4,7 @@ import math
 from pathlib import Path
 
 from PySide6.QtCore import (
+    QByteArray,
     Property,
     QEasingCurve,
     QEvent,
@@ -15,7 +16,8 @@ from PySide6.QtCore import (
     Qt,
     QVariantAnimation,
 )
-from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPen
+from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPen, QPixmap
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -101,6 +103,24 @@ class MainWindow(QMainWindow):
         self.debug_enabled = bool(self.context.settings_service.get().debug_mode or debug_peer)
         self.logo_path = Path(__file__).resolve().parents[1] / "assets" / "crocdrop_lock_logo.svg"
         self.icon_dir = Path(__file__).resolve().parents[1] / "assets" / "icons"
+        self._nav_icon_names: dict[str, str] = {
+            "Home": "nav_home.svg",
+            "Send": "nav_send.svg",
+            "Receive": "nav_receive.svg",
+            "Transfers": "nav_transfers.svg",
+            "Devices": "nav_devices.svg",
+            "Logs": "nav_logs.svg",
+            "Settings": "nav_settings.svg",
+            "Debug": "nav_debug.svg",
+            "About": "nav_about.svg",
+        }
+        self._footer_icon_names: dict[str, str] = {
+            "Settings": "nav_settings.svg",
+            "About": "nav_about.svg",
+            "Profile": "nav_profile.svg",
+        }
+        self._sidebar_svg_cache: dict[Path, str] = {}
+        self._sidebar_icon_cache: dict[tuple[str, str, int], QIcon] = {}
         self.setWindowTitle("CrocDrop")
         self.resize(1320, 860)
         self.setMinimumSize(1060, 720)
@@ -293,21 +313,10 @@ class MainWindow(QMainWindow):
         return [*self._main_nav_labels(), "Settings", "About", "Profile"]
 
     def _build_nav_items(self) -> None:
-        items: dict[str, str] = {
-            "Home": "nav_home.svg",
-            "Send": "nav_send.svg",
-            "Receive": "nav_receive.svg",
-            "Transfers": "nav_transfers.svg",
-            "Devices": "nav_devices.svg",
-            "Logs": "nav_logs.svg",
-            "Settings": "nav_settings.svg",
-            "Debug": "nav_debug.svg",
-            "About": "nav_about.svg",
-        }
         for label in self._main_nav_labels():
-            icon_name = items[label]
+            icon_name = self._nav_icon_names[label]
             icon_path = self.icon_dir / icon_name
-            icon = QIcon(str(icon_path)) if icon_path.exists() else QIcon()
+            icon = self._sidebar_svg_icon(icon_path, active=False) if icon_path.exists() else QIcon()
             item = QListWidgetItem(icon, label)
             self.nav.addItem(item)
 
@@ -318,12 +327,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
 
-        actions = [
-            ("Settings", "nav_settings.svg"),
-            ("About", "nav_about.svg"),
-            ("Profile", "nav_profile.svg"),
-        ]
-        for label, icon_name in actions:
+        for label, icon_name in self._footer_icon_names.items():
             button = QPushButton()
             button.setObjectName("SidebarFooterButton")
             button.setCheckable(True)
@@ -333,7 +337,7 @@ class MainWindow(QMainWindow):
             button.setIconSize(QSize(20, 20))
             icon_path = self.icon_dir / icon_name
             if icon_path.exists():
-                button.setIcon(QIcon(str(icon_path)))
+                button.setIcon(self._sidebar_svg_icon(icon_path, active=False))
             button.clicked.connect(lambda _checked=False, page=label: self.navigate_to(page))
             layout.addWidget(button)
             self.footer_buttons[label] = button
@@ -382,6 +386,7 @@ class MainWindow(QMainWindow):
 
         self._update_page_chrome(name)
         self._sync_footer_buttons(name)
+        self._refresh_sidebar_icons()
         self._sync_nav_indicator(animated=animated)
 
     def _update_page_chrome(self, name: str):
@@ -414,6 +419,7 @@ class MainWindow(QMainWindow):
         self.nav_indicator.set_dark_mode(settings.dark_mode)
         self.theme_switcher.set_dark_mode(settings.dark_mode)
         self.theme_switcher.set_theme_mode(settings.theme_mode, animated=False, emit_signal=False)
+        self._refresh_sidebar_icons()
         self.settings_page.refresh_theme_mode_control()
         if self.pages.currentWidget() is self.profile_page:
             self.profile_page.refresh()
@@ -581,6 +587,64 @@ class MainWindow(QMainWindow):
         self._nav_indicator_settle_anim.valueChanged.connect(_step)
         self._nav_indicator_settle_anim.finished.connect(_finish)
         self._nav_indicator_settle_anim.start()
+
+    def _refresh_sidebar_icons(self) -> None:
+        for label, icon_name in self._nav_icon_names.items():
+            row = self.nav_rows.get(label)
+            if row is None:
+                continue
+            item = self.nav.item(row)
+            if item is None:
+                continue
+            icon_path = self.icon_dir / icon_name
+            if not icon_path.exists():
+                continue
+            item.setIcon(self._sidebar_svg_icon(icon_path, active=(label == self._active_page_name)))
+
+        for label, icon_name in self._footer_icon_names.items():
+            button = self.footer_buttons.get(label)
+            if button is None:
+                continue
+            icon_path = self.icon_dir / icon_name
+            if not icon_path.exists():
+                continue
+            button.setIcon(self._sidebar_svg_icon(icon_path, active=(label == self._active_page_name)))
+
+    def _sidebar_svg_icon(self, icon_path: Path, active: bool, size: int = 20) -> QIcon:
+        color = self._sidebar_icon_color(active)
+        cache_key = (str(icon_path), color, size)
+        cached = self._sidebar_icon_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        svg_text = self._sidebar_svg_cache.get(icon_path)
+        if svg_text is None:
+            svg_text = icon_path.read_text(encoding="utf-8")
+            self._sidebar_svg_cache[icon_path] = svg_text
+
+        svg_text = (
+            svg_text.replace("currentColor", color)
+            .replace("#9FB0C8", color)
+            .replace("#9fb0c8", color)
+        )
+        renderer = QSvgRenderer(QByteArray(svg_text.encode("utf-8")))
+        device_ratio = 2.0
+        pixmap = QPixmap(round(size * device_ratio), round(size * device_ratio))
+        pixmap.setDevicePixelRatio(device_ratio)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        renderer.render(painter, QRectF(0, 0, size, size))
+        painter.end()
+
+        icon = QIcon(pixmap)
+        self._sidebar_icon_cache[cache_key] = icon
+        return icon
+
+    def _sidebar_icon_color(self, active: bool) -> str:
+        if self.context.settings_service.get().dark_mode:
+            return "#ffffff" if active else "#9fb0c8"
+        return "#0f1726" if active else "#2a3a4f"
 
     @staticmethod
     def _interpolate_rect(start: QRect, end: QRect, t: float) -> QRect:
