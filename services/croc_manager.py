@@ -2,6 +2,7 @@
 
 import io
 import json
+import re
 import shutil
 import subprocess
 import tarfile
@@ -30,6 +31,8 @@ class CrocManager:
         self.log = log_service.get_logger("croc")
         self.settings_service = settings_service
         self._cached_info: CrocBinaryInfo | None = None
+        self._cached_detect_signature: tuple[str, str, str] | None = None
+        self._cached_flag_support: dict[str, set[str]] = {}
 
     def _request_json(self, url: str) -> dict:
         req = Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "CrocDrop/1.0"})
@@ -43,15 +46,23 @@ class CrocManager:
 
     def detect_binary(self) -> CrocBinaryInfo:
         settings = self.settings_service.get()
+        bundled = tools_dir() / "croc" / "croc.exe"
+        exe = shutil.which("croc")
+        signature = (settings.croc_binary_path, str(bundled), exe or "")
+
+        if self._cached_info is not None and self._cached_detect_signature == signature:
+            if self._cached_info.source == "not-found":
+                return self._cached_info
+            if self._cached_info.path and Path(self._cached_info.path).exists():
+                return self._cached_info
+
         candidates: list[tuple[str, Path]] = []
 
         if settings.croc_binary_path:
             candidates.append(("manual", Path(settings.croc_binary_path)))
 
-        bundled = tools_dir() / "croc" / "croc.exe"
         candidates.append(("downloaded", bundled))
 
-        exe = shutil.which("croc")
         if exe:
             candidates.append(("system", Path(exe)))
 
@@ -60,10 +71,12 @@ class CrocManager:
                 version = self.get_version(path)
                 info = CrocBinaryInfo(path=str(path), version=version, source=source)
                 self._cached_info = info
+                self._cached_detect_signature = signature
                 return info
 
         info = CrocBinaryInfo(path="", version="", source="not-found", notes="No croc binary detected")
         self._cached_info = info
+        self._cached_detect_signature = signature
         return info
 
     def ensure_binary(self, auto_download: bool = True) -> CrocBinaryInfo:
@@ -137,6 +150,7 @@ class CrocManager:
             notes="Checksum not published for selected asset" if not expected_sha else "",
         )
         self._cached_info = info
+        self._cached_detect_signature = None
         self.log.info("croc installed at %s version=%s", binary_path, version)
         return info
 
@@ -205,9 +219,55 @@ class CrocManager:
             return ["--relay", settings.custom_relay.strip()]
         return []
 
+    def _supported_global_flags(self, binary_path: Path) -> set[str]:
+        key = str(binary_path)
+        cached = self._cached_flag_support.get(key)
+        if cached is not None:
+            return cached
+
+        try:
+            proc = subprocess.run([str(binary_path), "--help"], capture_output=True, text=True, timeout=10)
+            help_text = f"{proc.stdout}\n{proc.stderr}"
+        except Exception as exc:
+            self.log.warning("Unable to detect croc flag support: %s", exc)
+            self._cached_flag_support[key] = set()
+            return set()
+
+        flags = set(re.findall(r"--([A-Za-z][A-Za-z0-9-]*)", help_text))
+        self._cached_flag_support[key] = flags
+        return flags
+
+    def _build_speed_limit_args(self, binary_path: Path, direction: str) -> list[str]:
+        settings = self.settings_service.get()
+        supported = self._supported_global_flags(binary_path)
+        args: list[str] = []
+
+        if direction == "send" and settings.upload_limit_kbps > 0:
+            if "throttleUpload" in supported:
+                args.extend(["--throttleUpload", f"{settings.upload_limit_kbps}k"])
+            else:
+                self.log.warning("Upload limiter set but this croc build does not support --throttleUpload")
+
+        if direction == "receive" and settings.download_limit_kbps > 0:
+            if "throttleDownload" in supported:
+                args.extend(["--throttleDownload", f"{settings.download_limit_kbps}k"])
+            else:
+                self.log.warning("Download limiter set but this croc build does not support --throttleDownload")
+
+        return args
+
     def launch_send(self, paths: list[str], code_phrase: str = "") -> subprocess.Popen:
         info = self.ensure_binary(auto_download=self.settings_service.get().auto_download_croc)
-        cmd = [info.path, *self.build_relay_args(), "--ignore-stdin", "--no-compress", "send", "--hash", "md5"]
+        cmd = [
+            info.path,
+            *self.build_relay_args(),
+            *self._build_speed_limit_args(Path(info.path), "send"),
+            "--ignore-stdin",
+            "--no-compress",
+            "send",
+            "--hash",
+            "md5",
+        ]
         if code_phrase.strip():
             cmd.extend(["--code", code_phrase.strip()])
         cmd.extend(paths)
@@ -227,7 +287,14 @@ class CrocManager:
 
     def launch_receive(self, code_phrase: str, destination: str, overwrite: bool) -> subprocess.Popen:
         info = self.ensure_binary(auto_download=self.settings_service.get().auto_download_croc)
-        cmd = [info.path, *self.build_relay_args(), "--yes", "--ignore-stdin", "--no-compress"]
+        cmd = [
+            info.path,
+            *self.build_relay_args(),
+            *self._build_speed_limit_args(Path(info.path), "receive"),
+            "--yes",
+            "--ignore-stdin",
+            "--no-compress",
+        ]
         if overwrite:
             cmd.append("--overwrite")
         cmd.extend(["--out", destination, code_phrase])
@@ -286,5 +353,6 @@ class CrocManager:
                 pass
 
         self._cached_info = None
+        self._cached_detect_signature = None
         self.log.info("Deleted croc binary at %s", target)
         return True, f"Deleted croc binary: {target}"

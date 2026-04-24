@@ -147,30 +147,27 @@ class ReceivePage(QWidget):
     def on_transfer_finished(self, transfer_id: str, status: str):
         if transfer_id != self.current_transfer_id:
             return
+        self.flush_output()
         if status == "completed":
             self.progress.setValue(100)
-            return
-        if status != "failed":
-            return
-        records = self.context.history_service.list_records()
-        record = next((r for r in records if r.transfer_id == transfer_id), None)
-        if not record:
-            return
-        joined = "\n".join(record.output_excerpt[-80:]).lower()
-        if "no files transferred" in joined:
-            self.output.appendPlainText(
-                "Hint: Receiver connected but wrote no file. Choose an empty folder or collision='overwrite', then ask sender for a NEW code."
-            )
-        if "room (secure channel) not ready" in joined or "peer disconnected" in joined:
-            self.output.appendPlainText(
-                "Hint: This code/session is no longer active. Start a fresh send and use the newly generated code."
-            )
+        elif status == "failed":
+            record = self.context.transfer_service.get_record(transfer_id)
+            if record:
+                joined = "\n".join(record.output_excerpt[-80:]).lower()
+                if "no files transferred" in joined:
+                    self.output.appendPlainText(
+                        "Hint: Receiver connected but wrote no file. Choose an empty folder or collision='overwrite', then ask sender for a NEW code."
+                    )
+                if "room (secure channel) not ready" in joined or "peer disconnected" in joined:
+                    self.output.appendPlainText(
+                        "Hint: This code/session is no longer active. Start a fresh send and use the newly generated code."
+                    )
+        self.current_transfer_id = ""
 
     def on_transfer_updated(self, transfer_id: str):
         if transfer_id != self.current_transfer_id:
             return
-        records = self.context.history_service.list_records()
-        record = next((r for r in records if r.transfer_id == transfer_id), None)
+        record = self.context.transfer_service.get_record(transfer_id)
         if not record:
             return
         self.progress.setValue(max(0, min(100, int(record.bytes_done))))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
+from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -158,9 +159,12 @@ class SettingsPage(QWidget):
         self.auto_download = QCheckBox("Enabled")
         self.auto_download.setChecked(settings.auto_download_croc)
 
+        self.upload_limit_widget, self.upload_unlimited, self.upload_limit = self._create_bandwidth_control(settings.upload_limit_kbps)
+        self.download_limit_widget, self.download_unlimited, self.download_limit = self._create_bandwidth_control(settings.download_limit_kbps)
+
         general_card, general_form = self._make_settings_card(
-            "General",
-            "Tune the visual shell and the everyday defaults CrocDrop should remember for you.",
+            "Appearance and App Behavior",
+            "Visual defaults and app-wide memory behavior.",
         )
         row = 0
         row = self._add_setting_row(general_form, row, "Dark mode", "Use the premium dark appearance for the whole app shell.", self.dark_mode)
@@ -170,8 +174,8 @@ class SettingsPage(QWidget):
         container_layout.addWidget(general_card)
 
         transfers_card, transfers_form = self._make_settings_card(
-            "Transfers and Receive Behavior",
-            "Control how incoming files are accepted, saved, and opened after successful transfers.",
+            "Receive Defaults",
+            "Control how incoming files are accepted and where they are written.",
         )
         row = 0
         row = self._add_setting_row(transfers_form, row, "Default download folder", "Where incoming files are saved by default.", folder_widget)
@@ -179,9 +183,30 @@ class SettingsPage(QWidget):
         row = self._add_setting_row(transfers_form, row, "Auto-open received folder", "Open the destination folder after a successful receive.", self.auto_open)
         container_layout.addWidget(transfers_card)
 
+        bandwidth_card, bandwidth_form = self._make_settings_card(
+            "Bandwidth Limits",
+            "Set transfer speed caps in Mbit/s. Turn off Unlimited to enter a custom value.",
+        )
+        row = 0
+        row = self._add_setting_row(
+            bandwidth_form,
+            row,
+            "Upload speed limit",
+            "Applies while this device is sending files.",
+            self.upload_limit_widget,
+        )
+        row = self._add_setting_row(
+            bandwidth_form,
+            row,
+            "Download speed limit",
+            "Applies while this device is receiving files (if supported by installed croc version).",
+            self.download_limit_widget,
+        )
+        container_layout.addWidget(bandwidth_card)
+
         connection_card, connection_form = self._make_settings_card(
-            "Croc, Binary, and Connection",
-            "Manage the local croc executable and relay options used by the transfer backend.",
+            "Croc Binary and Relay",
+            "Manage the croc executable and relay routing used by the transfer backend.",
         )
         row = 0
         row = self._add_setting_row(connection_form, row, "Relay mode", "Use official public relay now, custom relay is ready for future self-hosting.", self.relay_mode)
@@ -268,6 +293,58 @@ class SettingsPage(QWidget):
         self.refresh_account_section()
         self.refresh_debug_controls()
 
+    def _create_bandwidth_control(self, limit_kbps: int) -> tuple[QWidget, QCheckBox, QLineEdit]:
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        unlimited = QCheckBox("Unlimited")
+        unlimited.setChecked(limit_kbps <= 0)
+
+        value_input = QLineEdit()
+        value_input.setPlaceholderText("Enter Mbit/s")
+        value_input.setValidator(QDoubleValidator(0.01, 1_000_000.0, 2, value_input))
+        value_input.setText(self._format_limit_mbit(limit_kbps))
+        value_input.setClearButtonEnabled(True)
+        value_input.setMaximumWidth(180)
+
+        unit_label = QLabel("Mbit/s")
+        unit_label.setObjectName("SettingDescription")
+
+        layout.addWidget(unlimited)
+        layout.addWidget(value_input)
+        layout.addWidget(unit_label)
+        layout.addStretch(1)
+
+        def sync_state(checked: bool) -> None:
+            value_input.setVisible(not checked)
+            unit_label.setVisible(not checked)
+
+        unlimited.toggled.connect(sync_state)
+        sync_state(unlimited.isChecked())
+        return widget, unlimited, value_input
+
+    def _format_limit_mbit(self, limit_kbps: int) -> str:
+        if limit_kbps <= 0:
+            return ""
+        value = limit_kbps / 125.0
+        return f"{value:.2f}".rstrip("0").rstrip(".")
+
+    def _read_bandwidth_limit_kbps(self, unlimited: QCheckBox, value_input: QLineEdit) -> int:
+        if unlimited.isChecked():
+            return 0
+        text = value_input.text().strip().replace(",", ".")
+        if not text:
+            return 0
+        try:
+            value_mbit = float(text)
+        except ValueError:
+            return 0
+        if value_mbit <= 0:
+            return 0
+        return max(1, int(round(value_mbit * 125.0)))
+
     def _make_settings_card(self, title: str, description: str) -> tuple[Card, QGridLayout]:
         card = Card(title)
         if description:
@@ -323,6 +400,8 @@ class SettingsPage(QWidget):
         s.custom_relay = self.custom_relay.text().strip()
         s.croc_binary_path = self.binary_path.text().strip()
         s.auto_download_croc = self.auto_download.isChecked()
+        s.upload_limit_kbps = self._read_bandwidth_limit_kbps(self.upload_unlimited, self.upload_limit)
+        s.download_limit_kbps = self._read_bandwidth_limit_kbps(self.download_unlimited, self.download_limit)
         s.log_retention_days = self.log_retention.value()
         self.context.settings_service.save(s)
         self.context.log_service.prune_old_logs(s.log_retention_days)

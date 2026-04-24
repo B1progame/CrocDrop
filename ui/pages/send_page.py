@@ -154,8 +154,7 @@ class SendPage(QWidget):
     def on_transfer_updated(self, transfer_id: str):
         if transfer_id != self.current_transfer_id:
             return
-        records = self.context.history_service.list_records()
-        record = next((r for r in records if r.transfer_id == transfer_id), None)
+        record = self.context.transfer_service.get_record(transfer_id)
         if not record:
             return
         if record.code_phrase:
@@ -174,6 +173,7 @@ class SendPage(QWidget):
     def on_transfer_finished(self, transfer_id: str, status: str):
         if transfer_id != self.current_transfer_id:
             return
+        self.flush_output()
         if status == "completed":
             self.progress.setValue(100)
         if status == "canceled":

@@ -555,8 +555,7 @@ class MainWindow(QMainWindow):
     def on_transfer_finished(self, transfer_id: str, status: str):
         if status != "completed":
             return
-        records = self.context.history_service.list_records()
-        record = next((r for r in records if r.transfer_id == transfer_id), None)
+        record = self.context.transfer_service.get_record(transfer_id)
         if not record:
             return
         if record.direction not in {"receive", "selftest-receive"}:

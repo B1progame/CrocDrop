@@ -17,35 +17,51 @@ class HistoryService(QObject):
         self.log = log_service.get_logger("history")
         self.store = JsonStore(state_dir() / "history.json")
         self._records: list[TransferRecord] = []
+        self._record_index: dict[str, int] = {}
         self.load()
 
     def load(self) -> list[TransferRecord]:
         payload = self.store.load(default=[])
         self._records = [TransferRecord.from_dict(item) for item in payload]
+        self._record_index = {record.transfer_id: idx for idx, record in enumerate(self._records)}
         return self._records
 
-    def save(self) -> None:
+    def save(self, emit_signal: bool = True) -> None:
         self.store.save([r.to_dict() for r in self._records])
-        self.history_changed.emit()
+        if emit_signal:
+            self.history_changed.emit()
 
     def list_records(self) -> list[TransferRecord]:
         return list(reversed(self._records))
 
+    def get_record(self, transfer_id: str) -> TransferRecord | None:
+        idx = self._record_index.get(transfer_id)
+        if idx is None:
+            return None
+        if idx >= len(self._records):
+            return None
+        return self._records[idx]
+
     def clear(self) -> None:
         self._records = []
+        self._record_index = {}
         self.save()
 
     def add(self, record: TransferRecord) -> TransferRecord:
+        self._record_index[record.transfer_id] = len(self._records)
         self._records.append(record)
         self.save()
         return record
 
-    def update(self, record: TransferRecord) -> None:
-        for idx, item in enumerate(self._records):
-            if item.transfer_id == record.transfer_id:
-                self._records[idx] = record
-                self.save()
-                return
+    def update(self, record: TransferRecord, persist: bool = True, emit_signal: bool = True) -> None:
+        idx = self._record_index.get(record.transfer_id)
+        if idx is None:
+            return
+        self._records[idx] = record
+        if persist:
+            self.save(emit_signal=emit_signal)
+        elif emit_signal:
+            self.history_changed.emit()
 
     def mark_started(self, record: TransferRecord) -> None:
         record.status = "running"

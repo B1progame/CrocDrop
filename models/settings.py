@@ -16,6 +16,8 @@ class AppSettings:
     custom_relay: str = ""
     croc_binary_path: str = ""
     auto_download_croc: bool = True
+    upload_limit_kbps: int = 0
+    download_limit_kbps: int = 0
     log_retention_days: int = 14
     debug_mode: bool = False
     trusted_devices: dict[str, str] = field(default_factory=dict)

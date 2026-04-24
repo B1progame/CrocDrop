@@ -90,6 +90,12 @@ class TransferService(QObject):
         self.active: dict[str, ActiveTransfer] = {}
         self._reserved_codes: dict[str, ReservedCode] = {}
 
+    def get_record(self, transfer_id: str) -> TransferRecord | None:
+        active = self.active.get(transfer_id)
+        if active is not None:
+            return active.record
+        return self.history_service.get_record(transfer_id)
+
     def start_send(self, paths: list[str], code_phrase: str = "", direction: str = "send") -> TransferRecord:
         active_profile = (self.settings_service.get().current_profile or "guest").strip() or "guest"
         if not code_phrase.strip():
@@ -149,12 +155,18 @@ class TransferService(QObject):
             record.output_excerpt = record.output_excerpt[-400:]
         record.output_excerpt.append(line)
         event = self.parser.parse(line)
+        changed = False
         if event.speed_text:
-            record.speed_text = event.speed_text
+            if record.speed_text != event.speed_text:
+                record.speed_text = event.speed_text
+                changed = True
         if event.failed and not record.error_message:
             record.error_message = line
+            changed = True
         # Avoid saving history on every output line; this is a major UI freeze source on large transfers.
         self.transfer_output.emit(transfer_id, line)
+        if changed:
+            self.transfer_updated.emit(transfer_id)
 
     def _on_code(self, record: TransferRecord, transfer_id: str, code: str) -> None:
         if not record.code_phrase:
@@ -167,7 +179,6 @@ class TransferService(QObject):
         if record.bytes_done == new_progress:
             return
         record.bytes_done = new_progress
-        self.history_service.update(record)
         self.transfer_updated.emit(transfer_id)
 
     def _on_finished(self, record: TransferRecord, transfer_id: str, exit_code: int) -> None:
