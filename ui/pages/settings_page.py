@@ -658,19 +658,26 @@ class SettingsPage(QWidget):
         self._refresh_category_button_states()
 
     def open_category(self, category_id: str) -> None:
+        normalized = (category_id or "").strip().lower()
         aliases = {
-            "profile": "profiles",
-            "profiles": "profiles",
-            "account": "profiles",
             "general": "general",
+            "transfer": "transfers",
             "transfers": "transfers",
             "speed": "speed",
             "speed_limits": "speed",
+            "speed-limits": "speed",
             "connection": "connection",
+            "profile": "profiles",
+            "profiles": "profiles",
+            "account": "profiles",
             "advanced": "advanced",
             "updates": "updates",
         }
-        self._switch_category(aliases.get(category_id, category_id))
+        self._switch_category(aliases.get(normalized, normalized))
+
+    @property
+    def current_category(self) -> str:
+        return self._current_category
 
     def _refresh_category_button_states(self) -> None:
         for category_id, button in self.category_buttons.items():

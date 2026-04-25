@@ -384,8 +384,21 @@ class MainWindow(QMainWindow):
 
     def navigate_to_settings(self, category: str | None = None, animated: bool = True) -> None:
         self._show_page("Settings", animated=animated, sync_nav=True)
-        if category and hasattr(self.settings_page, "open_category"):
-            QTimer.singleShot(0, lambda: self.settings_page.open_category(category))
+        if not category:
+            return
+
+        def _open_settings_category() -> None:
+            if self.pages.currentWidget() is not self.settings_page:
+                self.pages.setCurrentWidget(self.settings_page)
+                self._active_page_name = "Settings"
+                self._sync_footer_buttons("Settings")
+                self._refresh_sidebar_icons()
+                self._sync_nav_indicator(animated=False)
+            if hasattr(self.settings_page, "open_category"):
+                self.settings_page.open_category(category)
+
+        QTimer.singleShot(0, _open_settings_category)
+        QTimer.singleShot(80, _open_settings_category)
 
     def _clear_nav_list_selection(self) -> None:
         with QSignalBlocker(self.nav):
