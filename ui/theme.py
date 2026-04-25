@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QGuiApplication
+from PySide6.QtGui import QColor, QFont, QGuiApplication
 
 from models.settings import AppSettings
 
@@ -44,6 +44,21 @@ def resolve_dark_mode(settings: AppSettings, app=None) -> bool:
     return system_prefers_dark(app)
 
 
+def _blend_colors(color_a: str, color_b: str, ratio: float) -> str:
+    ratio = max(0.0, min(1.0, ratio))
+    first = QColor(color_a)
+    second = QColor(color_b)
+    red = round(first.red() * (1.0 - ratio) + second.red() * ratio)
+    green = round(first.green() * (1.0 - ratio) + second.green() * ratio)
+    blue = round(first.blue() * (1.0 - ratio) + second.blue() * ratio)
+    return QColor(red, green, blue).name()
+
+
+def _with_alpha(color: str, alpha: int) -> str:
+    candidate = QColor(color)
+    return f"rgba({candidate.red()}, {candidate.green()}, {candidate.blue()}, {max(0, min(255, alpha))})"
+
+
 def apply_theme(app, settings: AppSettings) -> None:
     # Some systems can surface a default font with no point/pixel size set,
     # which can trigger QFont::setPointSize warnings during style updates.
@@ -73,6 +88,7 @@ def apply_theme(app, settings: AppSettings) -> None:
             "hover": "#22334a",
             "pressed": "#1a2a3f",
             "success": "#49d59e",
+            "warning": "#ffb457",
             "danger": "#ff6f6f",
             "theme_shell": "rgba(28, 39, 57, 0.78)",
             "theme_shell_border": "rgba(166, 186, 214, 0.12)",
@@ -81,8 +97,6 @@ def apply_theme(app, settings: AppSettings) -> None:
             "theme_button_hover": "rgba(255, 255, 255, 0.045)",
             "theme_button_pressed": "rgba(255, 255, 255, 0.07)",
         }
-        accent_gradient = "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4f2a90, stop:0.55 #8c45ff, stop:1 #f58bc6)"
-        accent_gradient_soft = "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(79,42,144,140), stop:1 rgba(245,139,198,140))"
     else:
         palette = {
             "base_bg": "#eef3f8",
@@ -99,6 +113,7 @@ def apply_theme(app, settings: AppSettings) -> None:
             "hover": "#ecf3fb",
             "pressed": "#dfebf8",
             "success": "#1f9768",
+            "warning": "#c47a1d",
             "danger": "#c23d3d",
             "theme_shell": "rgba(255, 255, 255, 0.96)",
             "theme_shell_border": "rgba(124, 144, 168, 0.16)",
@@ -107,8 +122,19 @@ def apply_theme(app, settings: AppSettings) -> None:
             "theme_button_hover": "rgba(89, 108, 132, 0.08)",
             "theme_button_pressed": "rgba(89, 108, 132, 0.12)",
         }
-        accent_gradient = "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6a45cc, stop:0.6 #9b5cff, stop:1 #e873b4)"
-        accent_gradient_soft = "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(106,69,204,90), stop:1 rgba(232,115,180,90))"
+    accent_start = _blend_colors(accent, "#09121d" if settings.dark_mode else "#ffffff", 0.24 if settings.dark_mode else 0.08)
+    accent_end = _blend_colors(accent, "#ffffff", 0.26 if settings.dark_mode else 0.34)
+    accent_gradient = f"qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {accent_start}, stop:0.58 {accent}, stop:1 {accent_end})"
+    accent_gradient_soft = (
+        "qlineargradient("
+        f"x1:0, y1:0, x2:1, y2:1, stop:0 {_with_alpha(accent_start, 120 if settings.dark_mode else 82)}, "
+        f"stop:1 {_with_alpha(accent_end, 132 if settings.dark_mode else 92)})"
+    )
+    accent_soft = _with_alpha(accent, 40 if settings.dark_mode else 22)
+    accent_border = _with_alpha(accent, 120 if settings.dark_mode else 92)
+    success_surface = _blend_colors(palette["success"], palette["surface_1"], 0.82 if settings.dark_mode else 0.9)
+    warning_surface = _blend_colors(palette["warning"], palette["surface_1"], 0.82 if settings.dark_mode else 0.9)
+    danger_surface = _blend_colors(palette["danger"], palette["surface_1"], 0.82 if settings.dark_mode else 0.9)
 
     app.setStyleSheet(
         f"""
@@ -277,6 +303,31 @@ def apply_theme(app, settings: AppSettings) -> None:
             border-radius: 12px;
             border: 1px solid {palette['line']};
         }}
+        QWidget#SettingsPageRoot {{
+            background: transparent;
+        }}
+        QFrame#SettingsHero {{
+            background: qlineargradient(
+                x1:0, y1:0, x2:1, y2:1,
+                stop:0 {palette['surface_1']},
+                stop:1 {palette['surface_2']}
+            );
+            border-radius: 22px;
+            border: 1px solid {palette['line']};
+        }}
+        QLabel#SettingsHeroTitle {{
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: 0.2px;
+        }}
+        QLabel#SettingsHeroSubtitle {{
+            color: {palette['text_soft']};
+            font-size: 13px;
+            line-height: 1.35em;
+        }}
+        QWidget#SettingsStatusStrip {{
+            background: transparent;
+        }}
         QFrame#ProfileHero, QFrame#AboutHero {{
             background: {palette['surface_1']};
             border-radius: 18px;
@@ -319,6 +370,37 @@ def apply_theme(app, settings: AppSettings) -> None:
             font-size: 14px;
             font-weight: 700;
         }}
+        QFrame#SettingsCard {{
+            background: {palette['surface_1']};
+            border-radius: 20px;
+            border: 1px solid {palette['line']};
+        }}
+        QLabel#SettingsCardTitle {{
+            font-size: 16px;
+            font-weight: 800;
+            letter-spacing: 0.1px;
+        }}
+        QLabel#SettingsCardSubtitle {{
+            color: {palette['text_soft']};
+            font-size: 12px;
+        }}
+        QFrame#SettingsRow {{
+            background: transparent;
+            border-bottom: 1px solid {palette['line_soft']};
+            padding-bottom: 10px;
+            margin-bottom: 2px;
+        }}
+        QLabel#SettingsLabel {{
+            color: {palette['text']};
+            font-size: 13px;
+            font-weight: 700;
+            background: transparent;
+        }}
+        QLabel#SettingsDescription {{
+            color: {palette['text_soft']};
+            font-size: 12px;
+            background: transparent;
+        }}
         QLabel#SettingLabel {{
             color: {palette['text']};
             font-size: 13px;
@@ -336,8 +418,8 @@ def apply_theme(app, settings: AppSettings) -> None:
         QPushButton {{
             background: {palette['surface_2']};
             border: 1px solid {palette['line']};
-            border-radius: 8px;
-            padding: 8px 12px;
+            border-radius: 10px;
+            padding: 9px 14px;
         }}
         QPushButton:hover {{
             background: {palette['hover']};
@@ -355,6 +437,40 @@ def apply_theme(app, settings: AppSettings) -> None:
         QPushButton#PrimaryButton:hover {{
             background: {accent_gradient};
             border: 0;
+        }}
+        QPushButton#PrimaryButton:pressed {{
+            background: {accent_gradient};
+            border: 0;
+        }}
+        QPushButton#SecondaryButton {{
+            background: {palette['surface_2']};
+            border: 1px solid {palette['line']};
+            font-weight: 700;
+        }}
+        QPushButton#SecondaryButton:hover {{
+            background: {palette['hover']};
+            border-color: {accent};
+        }}
+        QPushButton#GhostButton {{
+            background: transparent;
+            border: 1px solid {palette['line_soft']};
+            color: {palette['text_soft']};
+            font-weight: 600;
+        }}
+        QPushButton#GhostButton:hover {{
+            background: {accent_soft};
+            border-color: {accent_border};
+            color: {palette['text']};
+        }}
+        QPushButton#DangerButton {{
+            background: {danger_surface};
+            border: 1px solid {_with_alpha(palette['danger'], 120 if settings.dark_mode else 90)};
+            color: {palette['danger'] if not settings.dark_mode else '#ffd9d9'};
+            font-weight: 700;
+        }}
+        QPushButton#DangerButton:hover {{
+            background: {_with_alpha(palette['danger'], 54 if settings.dark_mode else 28)};
+            border-color: {palette['danger']};
         }}
         QFrame#CollapsibleHeader {{
             background: transparent;
@@ -379,13 +495,101 @@ def apply_theme(app, settings: AppSettings) -> None:
         QLineEdit, QPlainTextEdit, QTextEdit, QComboBox, QSpinBox, QListWidget, QTableWidget {{
             background: {palette['input_bg']};
             border: 1px solid {palette['line_soft']};
-            border-radius: 8px;
-            padding: 6px;
+            border-radius: 10px;
+            padding: 7px 8px;
             selection-background-color: {accent};
             selection-color: #071118;
         }}
+        QLineEdit#PathInput {{
+            background: {palette['input_bg_alt']};
+            border-radius: 12px;
+            padding: 8px 10px;
+        }}
         QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus {{
             border-color: {accent};
+        }}
+        QFrame#SegmentedControl {{
+            background: {palette['surface_2']};
+            border: 1px solid {palette['line']};
+            border-radius: 16px;
+        }}
+        QPushButton#SegmentedButton, QPushButton#SegmentedButtonSelected {{
+            min-height: 32px;
+            padding: 7px 14px;
+            border-radius: 12px;
+            border: 0;
+            font-weight: 700;
+        }}
+        QPushButton#SegmentedButton {{
+            background: transparent;
+            color: {palette['text_soft']};
+        }}
+        QPushButton#SegmentedButton:hover {{
+            background: {palette['hover']};
+            color: {palette['text']};
+        }}
+        QPushButton#SegmentedButtonSelected {{
+            background: {accent_gradient};
+            color: #ffffff;
+        }}
+        QPushButton#ColorSwatch, QPushButton#ColorSwatchSelected {{
+            background: transparent;
+            border: 0;
+            padding: 0;
+        }}
+        QCheckBox#ToggleSwitch {{
+            background: transparent;
+            border: 0;
+            padding: 0;
+        }}
+        QLabel#StatusPill,
+        QLabel#StatusPillAccent,
+        QLabel#StatusPillSuccess,
+        QLabel#StatusPillWarning,
+        QLabel#StatusPillDanger {{
+            padding: 5px 10px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 700;
+            border: 1px solid {palette['line']};
+        }}
+        QLabel#StatusPill {{
+            color: {palette['text_soft']};
+            background: {palette['surface_2']};
+        }}
+        QLabel#StatusPillAccent {{
+            color: {palette['text'] if not settings.dark_mode else '#f8fbff'};
+            background: {accent_soft};
+            border: 1px solid {accent_border};
+        }}
+        QLabel#StatusPillSuccess {{
+            color: {palette['success']};
+            background: {success_surface};
+            border: 1px solid {_with_alpha(palette['success'], 96 if settings.dark_mode else 82)};
+        }}
+        QLabel#StatusPillWarning {{
+            color: {palette['warning']};
+            background: {warning_surface};
+            border: 1px solid {_with_alpha(palette['warning'], 96 if settings.dark_mode else 82)};
+        }}
+        QLabel#StatusPillDanger {{
+            color: {palette['danger'] if not settings.dark_mode else '#ffd9d9'};
+            background: {danger_surface};
+            border: 1px solid {_with_alpha(palette['danger'], 96 if settings.dark_mode else 82)};
+        }}
+        QFrame#AccentPreviewPanel {{
+            background: {palette['surface_2']};
+            border: 1px solid {palette['line']};
+            border-radius: 16px;
+        }}
+        QFrame#AccentPreviewStrip {{
+            background: {accent_gradient};
+            border-radius: 6px;
+        }}
+        QFrame#SettingsActionBar {{
+            background: {palette['surface_1']};
+            border-radius: 18px;
+            border: 1px solid {palette['line']};
         }}
         QScrollArea, QScrollArea > QWidget, QScrollArea > QWidget > QWidget {{
             background: transparent;
@@ -410,6 +614,19 @@ def apply_theme(app, settings: AppSettings) -> None:
         QProgressBar::chunk {{
             border-radius: 7px;
             background: {accent};
+        }}
+        QDialog#UpdateProgressDialog {{
+            background: {palette['surface_1']};
+            border: 1px solid {palette['line']};
+            border-radius: 18px;
+        }}
+        QLabel#UpdateDialogTitle {{
+            font-size: 16px;
+            font-weight: 800;
+        }}
+        QLabel#UpdateDialogSubtitle {{
+            color: {palette['text_soft']};
+            font-size: 12px;
         }}
         QScrollBar:vertical {{
             background: transparent;
