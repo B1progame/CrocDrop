@@ -45,14 +45,15 @@ from ui.pages.receive_page import ReceivePage
 from ui.pages.send_page import SendPage
 from ui.pages.settings_page import SettingsPage
 from ui.pages.transfers_page import TransfersPage
-from ui.theme import apply_theme
+from ui.theme import accent_gradient_stops, apply_theme, normalize_accent_color
 
 
 class SidebarActiveIndicator(QWidget):
-    def __init__(self, parent: QWidget, dark_mode: bool):
+    def __init__(self, parent: QWidget, dark_mode: bool, accent_color: str):
         super().__init__(parent)
         self._radius = 10.0
         self._dark_mode = dark_mode
+        self._accent_color = normalize_accent_color(accent_color)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setAutoFillBackground(False)
         self.hide()
@@ -70,6 +71,10 @@ class SidebarActiveIndicator(QWidget):
         self._dark_mode = dark_mode
         self.update()
 
+    def set_accent_color(self, accent: str) -> None:
+        self._accent_color = normalize_accent_color(accent)
+        self.update()
+
     def paintEvent(self, _event) -> None:
         if self.width() <= 1 or self.height() <= 1:
             return
@@ -79,15 +84,28 @@ class SidebarActiveIndicator(QWidget):
 
         rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
         gradient = QLinearGradient(0, 0, max(1, self.width()), max(1, self.height()))
+        start, middle, end = accent_gradient_stops(self._accent_color, self._dark_mode)
         if self._dark_mode:
-            gradient.setColorAt(0.0, QColor(79, 42, 144, 132))
-            gradient.setColorAt(0.58, QColor(140, 69, 255, 132))
-            gradient.setColorAt(1.0, QColor(245, 139, 198, 126))
+            start_color = QColor(start)
+            middle_color = QColor(middle)
+            end_color = QColor(end)
+            start_color.setAlpha(132)
+            middle_color.setAlpha(132)
+            end_color.setAlpha(126)
+            gradient.setColorAt(0.0, start_color)
+            gradient.setColorAt(0.58, middle_color)
+            gradient.setColorAt(1.0, end_color)
             border = QColor(255, 255, 255, 34)
         else:
-            gradient.setColorAt(0.0, QColor(106, 69, 204, 92))
-            gradient.setColorAt(0.6, QColor(155, 92, 255, 96))
-            gradient.setColorAt(1.0, QColor(232, 115, 180, 92))
+            start_color = QColor(start)
+            middle_color = QColor(middle)
+            end_color = QColor(end)
+            start_color.setAlpha(92)
+            middle_color.setAlpha(96)
+            end_color.setAlpha(92)
+            gradient.setColorAt(0.0, start_color)
+            gradient.setColorAt(0.58, middle_color)
+            gradient.setColorAt(1.0, end_color)
             border = QColor(255, 255, 255, 96)
 
         painter.setBrush(gradient)
@@ -188,6 +206,7 @@ class MainWindow(QMainWindow):
             icon_dir=self.icon_dir,
             theme_mode=current_settings.theme_mode,
             dark_mode=current_settings.dark_mode,
+            accent_color=current_settings.accent_color,
         )
         self.theme_switcher.themeChanged.connect(self._on_sidebar_theme_changed)
         self.sidebar_footer_section = self._build_sidebar_footer_section()
@@ -273,7 +292,11 @@ class MainWindow(QMainWindow):
         self._active_page_name = ""
         self._nav_indicator_anim: QVariantAnimation | None = None
         self._nav_indicator_settle_anim: QVariantAnimation | None = None
-        self.nav_indicator = SidebarActiveIndicator(self.sidebar, self.context.settings_service.get().dark_mode)
+        self.nav_indicator = SidebarActiveIndicator(
+            self.sidebar,
+            current_settings.dark_mode,
+            current_settings.accent_color,
+        )
         self.nav_indicator.setObjectName("NavIndicator")
         self.home_page.navigate_requested.connect(self.navigate_to)
         self.profile_page.navigate_requested.connect(self.navigate_to)
@@ -417,12 +440,15 @@ class MainWindow(QMainWindow):
         settings = self.context.settings_service.get()
         self._refresh_identity_surfaces()
         self.nav_indicator.set_dark_mode(settings.dark_mode)
+        self.nav_indicator.set_accent_color(settings.accent_color)
         self.theme_switcher.set_dark_mode(settings.dark_mode)
+        self.theme_switcher.set_accent_color(settings.accent_color)
         self.theme_switcher.set_theme_mode(settings.theme_mode, animated=False, emit_signal=False)
         self._refresh_sidebar_icons()
         self.settings_page.refresh_theme_mode_control()
         if self.pages.currentWidget() is self.profile_page:
             self.profile_page.refresh()
+        self._sync_nav_indicator(animated=False)
 
     def _on_sidebar_theme_changed(self, theme_mode: str) -> None:
         settings = self.context.settings_service.get()

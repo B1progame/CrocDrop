@@ -13,12 +13,72 @@ THEME_MODE_OPTIONS: tuple[tuple[str, str], ...] = (
     (THEME_LIGHT, "Light"),
     (THEME_SYSTEM, "System"),
 )
+DEFAULT_ACCENT = "#8f5cff"
+ACCENT_GRADIENT_PRESETS: dict[str, dict[bool, tuple[str, str, str]]] = {
+    "#8f5cff": {
+        True: ("#4f2a90", "#8c45ff", "#f58bc6"),
+        False: ("#6a45cc", "#9b5cff", "#e873b4"),
+    },
+    "#b06cff": {
+        True: ("#53308f", "#b06cff", "#f39bd2"),
+        False: ("#7448cc", "#b06cff", "#ea8fc6"),
+    },
+    "#ff7cc5": {
+        True: ("#7f285f", "#ff7cc5", "#ffb3dc"),
+        False: ("#c94993", "#ff7cc5", "#ffabd6"),
+    },
+    "#35c9a5": {
+        True: ("#116b60", "#35c9a5", "#8fffe2"),
+        False: ("#1e947e", "#35c9a5", "#7ee8d2"),
+    },
+    "#4aa8ff": {
+        True: ("#1c4f91", "#4aa8ff", "#95d5ff"),
+        False: ("#2f72c4", "#4aa8ff", "#8bcfff"),
+    },
+    "#ffad4a": {
+        True: ("#8a4a12", "#ffad4a", "#ffd08a"),
+        False: ("#c77320", "#ffad4a", "#ffc36e"),
+    },
+}
 
 
 def normalize_theme_mode(theme_mode: str | None, dark_mode: bool = True) -> str:
     if theme_mode in {THEME_DARK, THEME_LIGHT, THEME_SYSTEM}:
         return theme_mode
     return THEME_DARK if dark_mode else THEME_LIGHT
+
+
+def normalize_accent_color(color: str | None) -> str:
+    candidate = (color or "").strip().lower()
+    if not candidate:
+        return DEFAULT_ACCENT
+    if not candidate.startswith("#"):
+        candidate = f"#{candidate}"
+    return candidate if candidate in ACCENT_GRADIENT_PRESETS else DEFAULT_ACCENT
+
+
+def accent_gradient_stops(accent: str, dark_mode: bool) -> tuple[str, str, str]:
+    normalized = normalize_accent_color(accent)
+    return ACCENT_GRADIENT_PRESETS[normalized][bool(dark_mode)]
+
+
+def accent_gradient_qss(accent: str, dark_mode: bool, soft: bool = False) -> str:
+    start, middle, end = accent_gradient_stops(accent, dark_mode)
+    if not soft:
+        return (
+            "qlineargradient("
+            f"x1:0, y1:0, x2:1, y2:1, stop:0 {start}, stop:0.58 {middle}, stop:1 {end})"
+        )
+
+    if dark_mode:
+        start_alpha, middle_alpha, end_alpha = 132, 132, 126
+    else:
+        start_alpha, middle_alpha, end_alpha = 92, 96, 92
+    return (
+        "qlineargradient("
+        f"x1:0, y1:0, x2:1, y2:1, stop:0 {_with_alpha(start, start_alpha)}, "
+        f"stop:0.58 {_with_alpha(middle, middle_alpha)}, stop:1 {_with_alpha(end, end_alpha)})"
+    )
 
 
 def system_prefers_dark(app=None) -> bool:
@@ -71,7 +131,7 @@ def apply_theme(app, settings: AppSettings) -> None:
     settings.theme_mode = normalize_theme_mode(settings.theme_mode, settings.dark_mode)
     settings.dark_mode = resolve_dark_mode(settings, app)
 
-    accent = settings.accent_color or "#8f5cff"
+    accent = normalize_accent_color(settings.accent_color)
     if settings.dark_mode:
         palette = {
             "base_bg": "#0c1118",
@@ -122,14 +182,8 @@ def apply_theme(app, settings: AppSettings) -> None:
             "theme_button_hover": "rgba(89, 108, 132, 0.08)",
             "theme_button_pressed": "rgba(89, 108, 132, 0.12)",
         }
-    accent_start = _blend_colors(accent, "#09121d" if settings.dark_mode else "#ffffff", 0.24 if settings.dark_mode else 0.08)
-    accent_end = _blend_colors(accent, "#ffffff", 0.26 if settings.dark_mode else 0.34)
-    accent_gradient = f"qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {accent_start}, stop:0.58 {accent}, stop:1 {accent_end})"
-    accent_gradient_soft = (
-        "qlineargradient("
-        f"x1:0, y1:0, x2:1, y2:1, stop:0 {_with_alpha(accent_start, 120 if settings.dark_mode else 82)}, "
-        f"stop:1 {_with_alpha(accent_end, 132 if settings.dark_mode else 92)})"
-    )
+    accent_gradient = accent_gradient_qss(accent, settings.dark_mode, soft=False)
+    accent_gradient_soft = accent_gradient_qss(accent, settings.dark_mode, soft=True)
     accent_soft = _with_alpha(accent, 40 if settings.dark_mode else 22)
     accent_border = _with_alpha(accent, 120 if settings.dark_mode else 92)
     success_surface = _blend_colors(palette["success"], palette["surface_1"], 0.82 if settings.dark_mode else 0.9)

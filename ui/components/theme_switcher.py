@@ -8,18 +8,31 @@ from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPen, QPixma
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QPushButton, QSizePolicy, QWidget
 
-from ui.theme import THEME_DARK, THEME_LIGHT, THEME_MODE_OPTIONS, THEME_SYSTEM, normalize_theme_mode
+from ui.theme import (
+    THEME_DARK,
+    THEME_LIGHT,
+    THEME_MODE_OPTIONS,
+    THEME_SYSTEM,
+    accent_gradient_stops,
+    normalize_accent_color,
+    normalize_theme_mode,
+)
 
 
 class ThemeSwitcherIndicator(QWidget):
-    def __init__(self, parent: QWidget, dark_mode: bool):
+    def __init__(self, parent: QWidget, dark_mode: bool, accent_color: str):
         super().__init__(parent)
         self._dark_mode = dark_mode
+        self._accent_color = normalize_accent_color(accent_color)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.hide()
 
     def set_dark_mode(self, dark_mode: bool) -> None:
         self._dark_mode = dark_mode
+        self.update()
+
+    def set_accent_color(self, accent_color: str) -> None:
+        self._accent_color = normalize_accent_color(accent_color)
         self.update()
 
     def paintEvent(self, _event) -> None:
@@ -37,15 +50,28 @@ class ThemeSwitcherIndicator(QWidget):
         painter.drawRoundedRect(shadow_rect, radius, radius)
 
         gradient = QLinearGradient(rect.left(), rect.top(), rect.right(), rect.bottom())
+        start, middle, end = accent_gradient_stops(self._accent_color, self._dark_mode)
         if self._dark_mode:
-            gradient.setColorAt(0.0, QColor(96, 58, 164, 214))
-            gradient.setColorAt(0.58, QColor(144, 76, 255, 224))
-            gradient.setColorAt(1.0, QColor(245, 139, 198, 208))
+            start_color = QColor(start)
+            middle_color = QColor(middle)
+            end_color = QColor(end)
+            start_color.setAlpha(214)
+            middle_color.setAlpha(224)
+            end_color.setAlpha(208)
+            gradient.setColorAt(0.0, start_color)
+            gradient.setColorAt(0.58, middle_color)
+            gradient.setColorAt(1.0, end_color)
             border = QColor(255, 255, 255, 44)
         else:
-            gradient.setColorAt(0.0, QColor(135, 104, 226, 150))
-            gradient.setColorAt(0.55, QColor(170, 118, 255, 168))
-            gradient.setColorAt(1.0, QColor(237, 136, 191, 156))
+            start_color = QColor(start)
+            middle_color = QColor(middle)
+            end_color = QColor(end)
+            start_color.setAlpha(150)
+            middle_color.setAlpha(168)
+            end_color.setAlpha(156)
+            gradient.setColorAt(0.0, start_color)
+            gradient.setColorAt(0.58, middle_color)
+            gradient.setColorAt(1.0, end_color)
             border = QColor(255, 255, 255, 128)
 
         painter.setBrush(gradient)
@@ -65,11 +91,19 @@ class ThemeSwitcherIndicator(QWidget):
 class ThemeSwitcher(QFrame):
     themeChanged = Signal(str)
 
-    def __init__(self, icon_dir: Path, theme_mode: str, dark_mode: bool, parent: QWidget | None = None):
+    def __init__(
+        self,
+        icon_dir: Path,
+        theme_mode: str,
+        dark_mode: bool,
+        accent_color: str,
+        parent: QWidget | None = None,
+    ):
         super().__init__(parent)
         self.icon_dir = Path(icon_dir)
         self._theme_mode = normalize_theme_mode(theme_mode, dark_mode)
         self._dark_mode = bool(dark_mode)
+        self._accent_color = normalize_accent_color(accent_color)
         self._svg_cache: dict[Path, str] = {}
         self._slide_anim: QVariantAnimation | None = None
         self._settle_anim: QVariantAnimation | None = None
@@ -93,7 +127,7 @@ class ThemeSwitcher(QFrame):
         track_layout.setSpacing(8)
         shell_layout.addWidget(self.track)
 
-        self.indicator = ThemeSwitcherIndicator(self.track, self._dark_mode)
+        self.indicator = ThemeSwitcherIndicator(self.track, self._dark_mode, self._accent_color)
         self.indicator.lower()
 
         self.buttons: dict[str, QPushButton] = {}
@@ -140,6 +174,10 @@ class ThemeSwitcher(QFrame):
         self._dark_mode = dark_mode
         self.indicator.set_dark_mode(dark_mode)
         self._refresh_icons()
+
+    def set_accent_color(self, accent_color: str) -> None:
+        self._accent_color = normalize_accent_color(accent_color)
+        self.indicator.set_accent_color(self._accent_color)
 
     def set_theme_mode(self, theme_mode: str, animated: bool = True, emit_signal: bool = False) -> None:
         normalized = normalize_theme_mode(theme_mode, self._dark_mode)
