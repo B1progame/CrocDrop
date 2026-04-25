@@ -306,6 +306,63 @@ def apply_theme(app, settings: AppSettings) -> None:
         QWidget#SettingsPageRoot {{
             background: transparent;
         }}
+        QFrame#SettingsShell {{
+            background: transparent;
+            border: 0;
+        }}
+        QFrame#SettingsCategoryNav {{
+            background: {palette['surface_2']};
+            border-radius: 18px;
+            border: 1px solid {palette['line']};
+        }}
+        QPushButton#SettingsCategoryButton {{
+            text-align: left;
+            min-height: 40px;
+            padding: 9px 14px 9px 16px;
+            border-radius: 12px;
+            border: 1px solid transparent;
+            border-left: 4px solid transparent;
+            background: transparent;
+            color: {palette['text_soft']};
+            font-weight: 600;
+        }}
+        QPushButton#SettingsCategoryButton:hover {{
+            background: {palette['hover']};
+            color: {palette['text']};
+            border-color: {palette['line_soft']};
+        }}
+        QPushButton#SettingsCategoryButton[selected="true"] {{
+            background: {accent_soft};
+            color: {palette['text']};
+            font-weight: 700;
+            border-color: {accent_border};
+            border-left: 4px solid {accent};
+        }}
+        QPushButton#SettingsCategoryButton:focus {{
+            border-color: {accent_border};
+        }}
+        QFrame#SettingsContentPanel {{
+            background: {palette['surface_1']};
+            border-radius: 22px;
+            border: 1px solid {palette['line']};
+        }}
+        QStackedWidget#SettingsContentStack {{
+            background: transparent;
+            border: 0;
+        }}
+        QWidget#SettingsSubpage {{
+            background: transparent;
+        }}
+        QLabel#SettingsSubpageTitle {{
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: 0.15px;
+        }}
+        QLabel#SettingsSubpageSubtitle {{
+            color: {palette['text_soft']};
+            font-size: 12px;
+            line-height: 1.35em;
+        }}
         QFrame#SettingsHero {{
             background: qlineargradient(
                 x1:0, y1:0, x2:1, y2:1,
@@ -372,7 +429,7 @@ def apply_theme(app, settings: AppSettings) -> None:
         }}
         QFrame#SettingsCard {{
             background: {palette['surface_1']};
-            border-radius: 20px;
+            border-radius: 18px;
             border: 1px solid {palette['line']};
         }}
         QLabel#SettingsCardTitle {{
@@ -387,8 +444,8 @@ def apply_theme(app, settings: AppSettings) -> None:
         QFrame#SettingsRow {{
             background: transparent;
             border-bottom: 1px solid {palette['line_soft']};
-            padding-bottom: 10px;
-            margin-bottom: 2px;
+            padding-bottom: 9px;
+            margin-bottom: 1px;
         }}
         QLabel#SettingsLabel {{
             color: {palette['text']};
@@ -541,6 +598,10 @@ def apply_theme(app, settings: AppSettings) -> None:
             background: transparent;
             border: 0;
             padding: 0;
+            min-width: 54px;
+            max-width: 54px;
+            min-height: 30px;
+            max-height: 30px;
         }}
         QLabel#StatusPill,
         QLabel#StatusPillAccent,

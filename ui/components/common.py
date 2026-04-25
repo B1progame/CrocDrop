@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QRectF, Signal
+from PySide6.QtCore import Property, QEasingCurve, QPropertyAnimation, QSize, Qt, QRectF, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -21,11 +21,15 @@ from PySide6.QtWidgets import (
 )
 
 
-def refresh_widget_style(widget: QWidget) -> None:
+def repolish(widget: QWidget) -> None:
     style = widget.style()
     style.unpolish(widget)
     style.polish(widget)
     widget.update()
+
+
+def refresh_widget_style(widget: QWidget) -> None:
+    repolish(widget)
 
 
 class Card(QFrame):
@@ -87,7 +91,7 @@ class StatusPill(QLabel):
         variant = variant if variant in self._VARIANT_NAMES else "neutral"
         self.setProperty("variant", variant)
         self.setObjectName(self._VARIANT_NAMES[variant])
-        refresh_widget_style(self)
+        repolish(self)
 
 
 class SettingsHero(QFrame):
@@ -235,9 +239,9 @@ class SegmentedControl(QFrame):
             button.blockSignals(False)
             button.setProperty("selected", selected)
             button.setObjectName("SegmentedButtonSelected" if selected else "SegmentedButton")
-            refresh_widget_style(button)
+            repolish(button)
 
-        refresh_widget_style(self)
+        repolish(self)
         if changed and emit_signal:
             self.valueChanged.emit(value)
 
@@ -248,14 +252,63 @@ class ToggleSwitch(QCheckBox):
         self.setObjectName("ToggleSwitch")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setText("")
-        self.setFixedSize(52, 30)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setFixedSize(54, 30)
         self._accent = QColor("#8f5cff")
+        self._offset = 1.0 if self.isChecked() else 0.0
+        self._animation = QPropertyAnimation(self, b"offset", self)
+        self._animation.setDuration(140)
+        self._animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.toggled.connect(self._sync_visual_state)
+        self.stateChanged.connect(lambda _state: self.update())
+        self.setProperty("checked", self.isChecked())
 
     def set_accent_color(self, color: str) -> None:
         candidate = QColor(color)
         if candidate.isValid():
             self._accent = candidate
             self.update()
+
+    def sizeHint(self) -> QSize:
+        return QSize(54, 30)
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
+
+    def is_unchecked(self) -> bool:
+        return not self.isChecked()
+
+    def _get_offset(self) -> float:
+        return self._offset
+
+    def _set_offset(self, value: float) -> None:
+        self._offset = max(0.0, min(1.0, float(value)))
+        self.update()
+
+    offset = Property(float, _get_offset, _set_offset)
+
+    def _sync_visual_state(self, checked: bool) -> None:
+        self.setProperty("checked", checked)
+        repolish(self)
+        target = 1.0 if checked else 0.0
+        if not self.isVisible():
+            self._set_offset(target)
+            return
+        self._animation.stop()
+        self._animation.setStartValue(self._offset)
+        self._animation.setEndValue(target)
+        self._animation.start()
+
+    def setChecked(self, checked: bool) -> None:
+        super().setChecked(checked)
+        target = 1.0 if self.isChecked() else 0.0
+        if not self.isVisible():
+            self._set_offset(target)
+        elif self._animation.state() != QPropertyAnimation.State.Running:
+            self._set_offset(target)
+
+    def hitButton(self, pos) -> bool:
+        return self.rect().contains(pos)
 
     def paintEvent(self, _event) -> None:
         track_rect = QRectF(self.rect()).adjusted(1.5, 3.0, -1.5, -3.0)
@@ -275,14 +328,24 @@ class ToggleSwitch(QCheckBox):
         border_on.setAlpha(235 if self.isEnabled() else 125)
         knob = QColor("#f7fbff" if self.isEnabled() else "#d7dde7")
 
-        if self.isChecked():
-            track_color = track_on
-            border_color = border_on
-            knob_x = track_rect.right() - knob_diameter - 2.0
-        else:
-            track_color = track_off
-            border_color = border_off
-            knob_x = track_rect.left() + 2.0
+        blend = self._offset
+        off_mix = QColor(track_off)
+        on_mix = QColor(track_on)
+        border_off_mix = QColor(border_off)
+        border_on_mix = QColor(border_on)
+        track_color = QColor(
+            round(off_mix.red() * (1.0 - blend) + on_mix.red() * blend),
+            round(off_mix.green() * (1.0 - blend) + on_mix.green() * blend),
+            round(off_mix.blue() * (1.0 - blend) + on_mix.blue() * blend),
+            round(off_mix.alpha() * (1.0 - blend) + on_mix.alpha() * blend),
+        )
+        border_color = QColor(
+            round(border_off_mix.red() * (1.0 - blend) + border_on_mix.red() * blend),
+            round(border_off_mix.green() * (1.0 - blend) + border_on_mix.green() * blend),
+            round(border_off_mix.blue() * (1.0 - blend) + border_on_mix.blue() * blend),
+            round(border_off_mix.alpha() * (1.0 - blend) + border_on_mix.alpha() * blend),
+        )
+        knob_x = track_rect.left() + 2.0 + (track_rect.width() - knob_diameter - 4.0) * blend
 
         painter.setPen(QPen(border_color, 1.1))
         painter.setBrush(track_color)
@@ -295,6 +358,21 @@ class ToggleSwitch(QCheckBox):
             focus_rect = track_rect.adjusted(-2.0, -2.0, 2.0, 2.0)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(focus_rect, radius + 2.0, radius + 2.0)
+
+        if self.isEnabled():
+            state_text = "ON" if self.isChecked() else "OFF"
+            painter.setPen(QPen(QColor("#ffffff" if self.isChecked() else "#dce4ee"), 1.0))
+            font = painter.font()
+            font.setPointSizeF(max(8.0, font.pointSizeF() - 1))
+            font.setBold(True)
+            painter.setFont(font)
+            if self.isChecked():
+                text_rect = track_rect.adjusted(8.0, 0.0, -knob_diameter - 4.0, 0.0)
+                align = Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+            else:
+                text_rect = track_rect.adjusted(knob_diameter + 4.0, 0.0, -8.0, 0.0)
+                align = Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight
+            painter.drawText(text_rect.toRect(), int(align), state_text)
 
         knob_rect = QRectF(knob_x, knob_y, knob_diameter, knob_diameter)
         painter.setPen(QPen(QColor(28, 38, 54, 28), 1.0))
@@ -321,7 +399,7 @@ class ColorSwatchButton(QPushButton):
         self.blockSignals(False)
         self.setProperty("selected", selected)
         self.setObjectName("ColorSwatchSelected" if selected else "ColorSwatch")
-        refresh_widget_style(self)
+        repolish(self)
         self.update()
 
     def paintEvent(self, _event) -> None:

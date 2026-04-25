@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QThread, QTimer, Qt, Signal, Slot
+from copy import deepcopy
+
+from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QComboBox,
     QDialog,
     QFileDialog,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -18,6 +20,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSpinBox,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -32,8 +35,9 @@ from ui.components.common import (
     SettingsRow,
     StatusPill,
     ToggleSwitch,
+    repolish,
 )
-from ui.theme import THEME_MODE_OPTIONS, apply_theme, normalize_theme_mode
+from ui.theme import apply_theme
 
 
 class UpdateWorker(QObject):
@@ -115,11 +119,12 @@ class SettingsPage(QWidget):
         ("Orange", "#ffad4a"),
     )
 
-    SECTION_OPTIONS: tuple[tuple[str, str], ...] = (
-        ("appearance", "Appearance"),
+    CATEGORY_OPTIONS: tuple[tuple[str, str], ...] = (
+        ("general", "General"),
         ("transfers", "Transfers"),
+        ("speed", "Speed Limits"),
         ("connection", "Connection"),
-        ("account", "Account"),
+        ("profiles", "Profiles"),
         ("advanced", "Advanced"),
         ("updates", "Updates"),
     )
@@ -133,7 +138,10 @@ class SettingsPage(QWidget):
         self.update_dialog: UpdateProgressDialog | None = None
         self._loading = False
         self._dirty = False
-        self._layout_mode = ""
+        self._current_category = "general"
+        self._saved_settings_snapshot: dict[str, object] = {}
+        self.category_buttons: dict[str, QPushButton] = {}
+        self.category_pages: dict[str, QWidget] = {}
 
         self._build_ui()
         self._connect_signals()
@@ -144,78 +152,30 @@ class SettingsPage(QWidget):
         self._sync_bandwidth_controls()
         self._refresh_binary_status()
         self._refresh_status_pills()
+        self._switch_category("general")
+        self._capture_saved_settings_snapshot()
         self._set_dirty(False)
-        QTimer.singleShot(0, self._rebuild_cards_layout)
 
     def _build_ui(self) -> None:
         self.setObjectName("SettingsPageRoot")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(14)
+        root.setSpacing(16)
 
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        root.addWidget(self.scroll_area, 1)
-
-        self.scroll_container = QWidget()
-        self.scroll_layout = QVBoxLayout(self.scroll_container)
-        self.scroll_layout.setContentsMargins(0, 0, 0, 0)
-        self.scroll_layout.setSpacing(14)
-        self.scroll_area.setWidget(self.scroll_container)
-
-        self.scroll_layout.addWidget(self._build_hero())
-
-        self.section_nav = SegmentedControl(list(self.SECTION_OPTIONS), current_value="appearance")
-        self.scroll_layout.addWidget(self.section_nav)
-
-        self.cards_host = QWidget()
-        self.cards_grid = QGridLayout(self.cards_host)
-        self.cards_grid.setContentsMargins(0, 0, 0, 0)
-        self.cards_grid.setHorizontalSpacing(14)
-        self.cards_grid.setVerticalSpacing(14)
-        self.scroll_layout.addWidget(self.cards_host)
-        self.scroll_layout.addStretch(1)
-
-        self.appearance_card = self._build_appearance_card()
-        self.transfer_card = self._build_transfer_card()
-        self.speed_limits_card = self._build_speed_limits_card()
-        self.connection_card = self._build_connection_card()
-        self.profiles_card = self._build_profiles_card()
-        self.advanced_card = self._build_advanced_card()
-        self.updates_card = self._build_updates_card()
-
-        self._section_cards = {
-            "appearance": self.appearance_card,
-            "transfers": self.transfer_card,
-            "connection": self.connection_card,
-            "account": self.profiles_card,
-            "advanced": self.advanced_card,
-            "updates": self.updates_card,
-        }
-        self._cards = [
-            self.appearance_card,
-            self.transfer_card,
-            self.speed_limits_card,
-            self.connection_card,
-            self.profiles_card,
-            self.advanced_card,
-            self.updates_card,
-        ]
-
+        root.addWidget(self._build_header())
+        root.addWidget(self._build_settings_shell(), 1)
         root.addWidget(self._build_action_bar())
 
-    def _build_hero(self) -> QWidget:
+    def _build_header(self) -> QWidget:
         self.hero = SettingsHero(
             "Settings",
-            "Configure CrocDrop's transfers, appearance, connection, profiles, and advanced tools.",
+            "Manage local preferences, transfers, connection tools, profiles, debug access, and updates.",
         )
         self._build_status_strip()
         return self.hero
 
     def _build_status_strip(self) -> None:
-        self.theme_status_pill = StatusPill()
         self.accent_status_pill = StatusPill(variant="accent")
         self.relay_status_pill = StatusPill()
         self.profile_status_pill = StatusPill()
@@ -223,7 +183,6 @@ class SettingsPage(QWidget):
         self.version_status_pill = StatusPill(variant="accent")
         self.hero.set_status_pills(
             [
-                self.theme_status_pill,
                 self.accent_status_pill,
                 self.relay_status_pill,
                 self.profile_status_pill,
@@ -232,10 +191,81 @@ class SettingsPage(QWidget):
             ]
         )
 
-    def _build_appearance_card(self) -> SettingsCard:
-        card = SettingsCard("Appearance", "Theme, accent, memory, and local housekeeping.")
+    def _build_settings_shell(self) -> QWidget:
+        self.settings_shell = QFrame()
+        self.settings_shell.setObjectName("SettingsShell")
 
-        self.theme_mode_control = SegmentedControl(list(THEME_MODE_OPTIONS), current_value="dark")
+        layout = QHBoxLayout(self.settings_shell)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(18)
+
+        layout.addWidget(self._build_category_nav())
+        layout.addWidget(self._build_content_panel(), 1)
+        return self.settings_shell
+
+    def _build_category_nav(self) -> QWidget:
+        self.category_nav = QFrame()
+        self.category_nav.setObjectName("SettingsCategoryNav")
+        self.category_nav.setMinimumWidth(220)
+        self.category_nav.setMaximumWidth(240)
+
+        layout = QVBoxLayout(self.category_nav)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        nav_title = QLabel("Categories")
+        nav_title.setObjectName("SettingsLabel")
+        nav_subtitle = QLabel("Choose a settings area.")
+        nav_subtitle.setObjectName("SettingsDescription")
+        nav_subtitle.setWordWrap(True)
+
+        layout.addWidget(nav_title)
+        layout.addWidget(nav_subtitle)
+        layout.addSpacing(4)
+
+        self.category_button_group = QButtonGroup(self)
+        self.category_button_group.setExclusive(True)
+
+        for category_id, label in self.CATEGORY_OPTIONS:
+            button = QPushButton(label)
+            button.setObjectName("SettingsCategoryButton")
+            button.setCheckable(True)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.clicked.connect(lambda _checked=False, key=category_id: self._switch_category(key))
+            self.category_button_group.addButton(button)
+            self.category_buttons[category_id] = button
+            layout.addWidget(button)
+
+        layout.addStretch(1)
+        return self.category_nav
+
+    def _build_content_panel(self) -> QWidget:
+        self.content_panel = QFrame()
+        self.content_panel.setObjectName("SettingsContentPanel")
+
+        layout = QVBoxLayout(self.content_panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.content_stack = QStackedWidget()
+        self.content_stack.setObjectName("SettingsContentStack")
+        layout.addWidget(self.content_stack)
+
+        self._add_category_page("general", self._build_general_page())
+        self._add_category_page("transfers", self._build_transfers_page())
+        self._add_category_page("speed", self._build_speed_limits_page())
+        self._add_category_page("connection", self._build_connection_page())
+        self._add_category_page("profiles", self._build_profiles_page())
+        self._add_category_page("advanced", self._build_advanced_page())
+        self._add_category_page("updates", self._build_updates_page())
+
+        return self.content_panel
+
+    def _add_category_page(self, category_id: str, page: QWidget) -> None:
+        self.category_pages[category_id] = page
+        self.content_stack.addWidget(page)
+
+    def _build_general_page(self) -> QWidget:
         self.accent_picker = ColorSwatchPicker(list(self.ACCENT_OPTIONS))
         self.remember_last = ToggleSwitch()
         self.log_retention = QSpinBox()
@@ -252,11 +282,18 @@ class SettingsPage(QWidget):
         log_layout.addWidget(log_days)
         log_layout.addStretch(1)
 
-        card.add_widget(SettingsRow("Theme mode", "Dark, light, or follow your desktop.", self.theme_mode_control))
-        card.add_widget(SettingsRow("Accent color", "Choose the highlight tone for controls and focus states.", self.accent_picker))
-        card.add_widget(SettingsRow("Remember last folders", "Reuse the most recent send and receive folders.", self.remember_last))
-        card.add_widget(SettingsRow("Log retention", "Prune old logs automatically after the selected number of days.", log_widget))
+        preferences_card = SettingsCard("Local preferences", "Everyday defaults stored on this device.")
+        preferences_card.add_widget(
+            SettingsRow("Accent color", "Choose the highlight color used across CrocDrop.", self.accent_picker)
+        )
+        preferences_card.add_widget(
+            SettingsRow("Remember last folders", "Reuse the most recent send and receive folders.", self.remember_last)
+        )
+        preferences_card.add_widget(
+            SettingsRow("Log retention", "Remove old logs automatically after the selected number of days.", log_widget)
+        )
 
+        preview_card = SettingsCard("Accent preview", "A quick preview of the current accent selection.")
         self.accent_preview = QFrame()
         self.accent_preview.setObjectName("AccentPreviewPanel")
         preview_layout = QVBoxLayout(self.accent_preview)
@@ -269,9 +306,10 @@ class SettingsPage(QWidget):
         preview_title_col = QVBoxLayout()
         preview_title_col.setContentsMargins(0, 0, 0, 0)
         preview_title_col.setSpacing(2)
+
         self.accent_preview_title = QLabel("Accent preview")
         self.accent_preview_title.setObjectName("SettingsLabel")
-        self.accent_preview_caption = QLabel("A quick look at how the selected accent feels across the dashboard.")
+        self.accent_preview_caption = QLabel("Used for highlights, selection states, and primary actions.")
         self.accent_preview_caption.setObjectName("SettingsDescription")
         self.accent_preview_caption.setWordWrap(True)
         preview_title_col.addWidget(self.accent_preview_title)
@@ -287,12 +325,15 @@ class SettingsPage(QWidget):
 
         preview_layout.addLayout(preview_header)
         preview_layout.addWidget(self.accent_preview_strip)
-        card.add_widget(self.accent_preview)
-        return card
+        preview_card.add_widget(self.accent_preview)
 
-    def _build_transfer_card(self) -> SettingsCard:
-        card = SettingsCard("Transfer Defaults", "Where incoming files land and how receive confirmations behave.")
+        return self._build_subpage(
+            "General",
+            "Local appearance and housekeeping preferences.",
+            [preferences_card, preview_card],
+        )
 
+    def _build_transfers_page(self) -> QWidget:
         self.download_path_row = PathInputRow(
             placeholder="Choose a default download folder",
             button_text="Browse",
@@ -300,13 +341,24 @@ class SettingsPage(QWidget):
         self.ask_before = ToggleSwitch()
         self.auto_open = ToggleSwitch()
 
-        card.add_widget(SettingsRow("Default download folder", "Destination used for incoming transfers.", self.download_path_row))
-        card.add_widget(SettingsRow("Ask before receiving", "Require confirmation before CrocDrop accepts data.", self.ask_before))
-        card.add_widget(SettingsRow("Auto-open received folder", "Open the destination folder after a successful receive.", self.auto_open))
-        return card
+        receive_card = SettingsCard("Receiving defaults", "Set how incoming transfers should behave.")
+        receive_card.add_widget(
+            SettingsRow("Default download folder", "Destination used for incoming transfers.", self.download_path_row)
+        )
+        receive_card.add_widget(
+            SettingsRow("Ask before receiving", "Require confirmation before CrocDrop accepts data.", self.ask_before)
+        )
+        receive_card.add_widget(
+            SettingsRow("Auto-open received folder", "Open the destination folder after a successful receive.", self.auto_open)
+        )
 
-    def _build_speed_limits_card(self) -> SettingsCard:
-        card = SettingsCard("Speed Limits", "Leave unlimited for fastest local transfers.")
+        return self._build_subpage(
+            "Transfers",
+            "Choose where incoming files go and how receive confirmations work.",
+            [receive_card],
+        )
+
+    def _build_speed_limits_page(self) -> QWidget:
         (
             self.upload_limit_widget,
             self.upload_unlimited,
@@ -320,13 +372,25 @@ class SettingsPage(QWidget):
             self.download_limit_unit,
         ) = self._create_bandwidth_control()
 
-        card.add_widget(SettingsRow("Upload speed", "Applies while this device is sending files.", self.upload_limit_widget))
-        card.add_widget(SettingsRow("Download speed", "Applies while this device is receiving files.", self.download_limit_widget))
-        return card
+        limits_card = SettingsCard("Bandwidth", "Limit transfer bandwidth or keep CrocDrop unrestricted.")
+        limits_card.add_widget(
+            SettingsRow("Upload speed", "Unlimited saves as 0 kbps and disables manual entry.", self.upload_limit_widget)
+        )
+        limits_card.add_widget(
+            SettingsRow("Download speed", "Displayed in Mbit/s while persisted internally as kbps.", self.download_limit_widget)
+        )
+        helper = QLabel("Unlimited is usually best for local transfers.")
+        helper.setObjectName("SettingsDescription")
+        helper.setWordWrap(True)
+        limits_card.add_widget(helper)
 
-    def _build_connection_card(self) -> SettingsCard:
-        card = SettingsCard("Connection & Croc Binary", "Relay routing and executable management in one place.")
+        return self._build_subpage(
+            "Speed Limits",
+            "Control transfer bandwidth without changing Croc compatibility.",
+            [limits_card],
+        )
 
+    def _build_connection_page(self) -> QWidget:
         self.relay_mode_control = SegmentedControl(
             [("public", "Public relay"), ("custom", "Custom relay")],
             current_value="public",
@@ -334,6 +398,17 @@ class SettingsPage(QWidget):
         self.custom_relay = QLineEdit()
         self.custom_relay.setPlaceholderText("relay.example.com:9009")
         self.custom_relay.setClearButtonEnabled(True)
+
+        relay_card = SettingsCard("Relay", "Choose the default relay mode used by transfers.")
+        relay_card.add_widget(
+            SettingsRow("Relay mode", "Use the public relay or point CrocDrop at a custom endpoint.", self.relay_mode_control)
+        )
+        self.custom_relay_row = SettingsRow(
+            "Custom relay",
+            "Only used when custom relay mode is selected.",
+            self.custom_relay,
+        )
+        relay_card.add_widget(self.custom_relay_row)
 
         self.binary_status = StatusPill()
         self.binary_status_label = QLabel()
@@ -355,17 +430,24 @@ class SettingsPage(QWidget):
 
         self.auto_download = ToggleSwitch()
 
-        card.add_widget(SettingsRow("Relay mode", "Choose the public relay or provide a custom endpoint.", self.relay_mode_control))
-        self.custom_relay_row = SettingsRow("Custom relay", "Only used when custom relay mode is selected.", self.custom_relay)
-        card.add_widget(self.custom_relay_row)
-        card.add_widget(SettingsRow("Binary status", "Current croc binary strategy for this device.", binary_status_widget))
-        card.add_widget(SettingsRow("Croc binary path", "Manual executable path used by this installation.", self.binary_path_row))
-        card.add_widget(SettingsRow("Auto-download croc", "Fetch croc automatically when a binary is missing.", self.auto_download))
-        return card
+        binary_card = SettingsCard("Croc binary", "Manage the croc executable used by this installation.")
+        binary_card.add_widget(
+            SettingsRow("Binary status", "Current croc binary strategy for this device.", binary_status_widget)
+        )
+        binary_card.add_widget(
+            SettingsRow("Croc binary path", "Manual executable path used by this installation.", self.binary_path_row)
+        )
+        binary_card.add_widget(
+            SettingsRow("Auto-download croc", "Fetch croc automatically when a binary is missing.", self.auto_download)
+        )
 
-    def _build_profiles_card(self) -> SettingsCard:
-        card = SettingsCard("Profiles", "Profiles stay local to this installation and guest mode stays account-free.")
+        return self._build_subpage(
+            "Connection",
+            "Relay routing and croc binary controls.",
+            [relay_card, binary_card],
+        )
 
+    def _build_profiles_page(self) -> QWidget:
         self.current_profile_pill = StatusPill()
         self.profile_combo = QComboBox()
         self.profile_combo.setMinimumWidth(220)
@@ -392,14 +474,22 @@ class SettingsPage(QWidget):
         profile_actions_layout.addWidget(self.remove_profile_btn)
         profile_actions_layout.addStretch(1)
 
-        card.add_widget(SettingsRow("Current profile", "The active local profile shown across the app.", self.current_profile_pill))
-        card.add_widget(SettingsRow("Profile selector", "Switch between saved local profiles.", profile_picker))
-        card.add_widget(profile_actions)
-        return card
+        profiles_card = SettingsCard("Profiles", "Profiles stay local to this installation.")
+        profiles_card.add_widget(
+            SettingsRow("Current profile", "The active local profile shown across the app.", self.current_profile_pill)
+        )
+        profiles_card.add_widget(
+            SettingsRow("Profile selector", "Switch between saved local profiles.", profile_picker)
+        )
+        profiles_card.add_widget(profile_actions)
 
-    def _build_advanced_card(self) -> SettingsCard:
-        card = SettingsCard("Advanced & Debug", "High-impact tools for local troubleshooting and restart-aware toggles.")
+        return self._build_subpage(
+            "Profiles",
+            "Switch between saved profiles or return to guest mode.",
+            [profiles_card],
+        )
 
+    def _build_advanced_page(self) -> QWidget:
         self.debug_state_pill = StatusPill()
         self.debug_state_label = QLabel()
         self.debug_state_label.setObjectName("SettingsDescription")
@@ -423,13 +513,19 @@ class SettingsPage(QWidget):
         debug_actions_layout.addWidget(self.disable_debug_btn)
         debug_actions_layout.addStretch(1)
 
-        card.add_widget(SettingsRow("Debug status", "Changes take effect after the next CrocDrop launch.", debug_status_widget))
-        card.add_widget(debug_actions)
-        return card
+        advanced_card = SettingsCard("Debug tools", "High-impact controls for local troubleshooting.")
+        advanced_card.add_widget(
+            SettingsRow("Debug status", "Changes take effect after the next CrocDrop launch.", debug_status_widget)
+        )
+        advanced_card.add_widget(debug_actions)
 
-    def _build_updates_card(self) -> SettingsCard:
-        card = SettingsCard("Updates", "Track your current build and download the latest release when available.")
+        return self._build_subpage(
+            "Advanced",
+            "Sensitive controls that should only be changed intentionally.",
+            [advanced_card],
+        )
 
+    def _build_updates_page(self) -> QWidget:
         self.current_version_chip = StatusPill(APP_VERSION, "accent")
         self.update_status_chip = StatusPill("Ready", "success")
         self.update_status_label = QLabel("Ready to check for updates.")
@@ -445,20 +541,61 @@ class SettingsPage(QWidget):
         self.update_btn = QPushButton("Update App")
         self.update_btn.setObjectName("PrimaryButton")
 
-        card.add_widget(SettingsRow("Current version", "Version installed on this device.", self.current_version_chip))
-        card.add_widget(SettingsRow("Update status", "Latest release downloads run in the background.", update_status_widget))
         update_action_row = QWidget()
         update_action_layout = QHBoxLayout(update_action_row)
         update_action_layout.setContentsMargins(0, 0, 0, 0)
         update_action_layout.setSpacing(8)
         update_action_layout.addWidget(self.update_btn)
         update_action_layout.addStretch(1)
-        card.add_widget(update_action_row)
-        return card
+
+        updates_card = SettingsCard("Application updates", "Check the current build and download the latest release.")
+        updates_card.add_widget(
+            SettingsRow("Current version", "Version installed on this device.", self.current_version_chip)
+        )
+        updates_card.add_widget(
+            SettingsRow("Update status", "Latest release downloads run in the background.", update_status_widget)
+        )
+        updates_card.add_widget(update_action_row)
+
+        return self._build_subpage(
+            "Updates",
+            "Keep CrocDrop current without affecting your saved settings.",
+            [updates_card],
+        )
+
+    def _build_subpage(self, title: str, subtitle: str, cards: list[QWidget]) -> QWidget:
+        content = QWidget()
+        content.setObjectName("SettingsSubpage")
+
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(22, 22, 22, 22)
+        layout.setSpacing(14)
+
+        title_label = QLabel(title)
+        title_label.setObjectName("SettingsSubpageTitle")
+        subtitle_label = QLabel(subtitle)
+        subtitle_label.setObjectName("SettingsSubpageSubtitle")
+        subtitle_label.setWordWrap(True)
+
+        layout.addWidget(title_label)
+        layout.addWidget(subtitle_label)
+
+        for card in cards:
+            layout.addWidget(card)
+
+        layout.addStretch(1)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(content)
+        return scroll
 
     def _build_action_bar(self) -> QWidget:
         self.action_bar = QFrame()
         self.action_bar.setObjectName("SettingsActionBar")
+
         layout = QHBoxLayout(self.action_bar)
         layout.setContentsMargins(18, 14, 18, 14)
         layout.setSpacing(12)
@@ -467,7 +604,7 @@ class SettingsPage(QWidget):
         text_col.setContentsMargins(0, 0, 0, 0)
         text_col.setSpacing(3)
         self.dirty_pill = StatusPill("All changes saved", "success")
-        self.action_hint = QLabel("Changes are saved locally on this device.")
+        self.action_hint = QLabel("Settings are stored locally.")
         self.action_hint.setObjectName("SettingsDescription")
         text_col.addWidget(self.dirty_pill, 0, Qt.AlignmentFlag.AlignLeft)
         text_col.addWidget(self.action_hint)
@@ -481,8 +618,6 @@ class SettingsPage(QWidget):
         return self.action_bar
 
     def _connect_signals(self) -> None:
-        self.section_nav.valueChanged.connect(self._scroll_to_section)
-
         self.download_path_row.primary_button.clicked.connect(self.pick_folder)
         self.binary_path_row.primary_button.clicked.connect(self.pick_binary)
         if self.binary_path_row.extra_button is not None:
@@ -497,8 +632,7 @@ class SettingsPage(QWidget):
         self.enable_debug_btn.clicked.connect(self.enable_debug_features)
         self.disable_debug_btn.clicked.connect(self.disable_debug_features)
 
-        self.theme_mode_control.valueChanged.connect(lambda _value: self._on_theme_or_accent_changed())
-        self.accent_picker.valueChanged.connect(lambda _value: self._on_theme_or_accent_changed())
+        self.accent_picker.valueChanged.connect(lambda _value: self._on_accent_changed())
         self.remember_last.toggled.connect(lambda _checked: self._mark_dirty())
         self.log_retention.valueChanged.connect(lambda _value: self._mark_dirty())
 
@@ -516,6 +650,22 @@ class SettingsPage(QWidget):
         self.download_unlimited.toggled.connect(lambda _checked: self._on_bandwidth_changed())
         self.download_limit.textChanged.connect(lambda _text: self._on_bandwidth_changed())
 
+    def _switch_category(self, category_id: str) -> None:
+        if category_id not in self.category_pages:
+            return
+        self._current_category = category_id
+        self.content_stack.setCurrentWidget(self.category_pages[category_id])
+        self._refresh_category_button_states()
+
+    def _refresh_category_button_states(self) -> None:
+        for category_id, button in self.category_buttons.items():
+            selected = category_id == self._current_category
+            button.blockSignals(True)
+            button.setChecked(selected)
+            button.blockSignals(False)
+            button.setProperty("selected", selected)
+            repolish(button)
+
     def _load_settings_into_controls(self) -> None:
         settings = self.context.settings_service.get()
         self._loading = True
@@ -525,8 +675,6 @@ class SettingsPage(QWidget):
             self.auto_open.setChecked(settings.auto_open_received_folder)
             self.remember_last.setChecked(settings.remember_last_folders)
 
-            theme_mode = normalize_theme_mode(settings.theme_mode, settings.dark_mode)
-            self.theme_mode_control.set_current_value(theme_mode, emit_signal=False)
             accent = settings.accent_color if settings.accent_color in {color for _name, color in self.ACCENT_OPTIONS} else self.ACCENT_OPTIONS[0][1]
             self.accent_picker.set_current_value(accent, emit_signal=False)
 
@@ -547,23 +695,59 @@ class SettingsPage(QWidget):
             self._apply_pending_accent()
         finally:
             self._loading = False
+        self._capture_saved_settings_snapshot()
 
     def _collect_settings_from_controls(self):
         settings = self.context.settings_service.get()
-        settings.default_download_folder = self.download_path_row.line_edit.text().strip()
-        settings.ask_before_receiving = self.ask_before.isChecked()
-        settings.auto_open_received_folder = self.auto_open.isChecked()
-        settings.remember_last_folders = self.remember_last.isChecked()
-        settings.theme_mode = normalize_theme_mode(self.theme_mode_control.current_value(), settings.dark_mode)
-        settings.accent_color = self.accent_picker.current_value()
-        settings.relay_mode = self.relay_mode_control.current_value()
-        settings.custom_relay = self.custom_relay.text().strip()
-        settings.croc_binary_path = self.binary_path_row.line_edit.text().strip()
-        settings.auto_download_croc = self.auto_download.isChecked()
-        settings.upload_limit_kbps = self._read_bandwidth_limit_kbps(self.upload_unlimited, self.upload_limit)
-        settings.download_limit_kbps = self._read_bandwidth_limit_kbps(self.download_unlimited, self.download_limit)
-        settings.log_retention_days = self.log_retention.value()
-        return settings
+        updated = deepcopy(settings.to_dict())
+        updated["default_download_folder"] = self.download_path_row.line_edit.text().strip()
+        updated["ask_before_receiving"] = self.ask_before.isChecked()
+        updated["auto_open_received_folder"] = self.auto_open.isChecked()
+        updated["remember_last_folders"] = self.remember_last.isChecked()
+        updated["accent_color"] = self.accent_picker.current_value()
+        updated["relay_mode"] = self.relay_mode_control.current_value()
+        updated["custom_relay"] = self.custom_relay.text().strip()
+        updated["croc_binary_path"] = self.binary_path_row.line_edit.text().strip()
+        updated["auto_download_croc"] = self.auto_download.isChecked()
+        updated["upload_limit_kbps"] = self._read_bandwidth_limit_kbps(self.upload_unlimited, self.upload_limit)
+        updated["download_limit_kbps"] = self._read_bandwidth_limit_kbps(self.download_unlimited, self.download_limit)
+        updated["log_retention_days"] = self.log_retention.value()
+        return settings.from_dict(updated)
+
+    def _capture_saved_settings_snapshot(self) -> None:
+        self._saved_settings_snapshot = self._settings_snapshot(self.context.settings_service.get())
+
+    def _settings_snapshot(self, settings) -> dict[str, object]:
+        return {
+            "default_download_folder": settings.default_download_folder.strip(),
+            "ask_before_receiving": bool(settings.ask_before_receiving),
+            "auto_open_received_folder": bool(settings.auto_open_received_folder),
+            "remember_last_folders": bool(settings.remember_last_folders),
+            "accent_color": settings.accent_color,
+            "relay_mode": settings.relay_mode or "public",
+            "custom_relay": settings.custom_relay.strip(),
+            "croc_binary_path": settings.croc_binary_path.strip(),
+            "auto_download_croc": bool(settings.auto_download_croc),
+            "upload_limit_kbps": int(settings.upload_limit_kbps),
+            "download_limit_kbps": int(settings.download_limit_kbps),
+            "log_retention_days": int(settings.log_retention_days),
+        }
+
+    def _current_settings_snapshot(self) -> dict[str, object]:
+        return {
+            "default_download_folder": self.download_path_row.line_edit.text().strip(),
+            "ask_before_receiving": self.ask_before.isChecked(),
+            "auto_open_received_folder": self.auto_open.isChecked(),
+            "remember_last_folders": self.remember_last.isChecked(),
+            "accent_color": self.accent_picker.current_value(),
+            "relay_mode": self.relay_mode_control.current_value(),
+            "custom_relay": self.custom_relay.text().strip(),
+            "croc_binary_path": self.binary_path_row.line_edit.text().strip(),
+            "auto_download_croc": self.auto_download.isChecked(),
+            "upload_limit_kbps": self._read_bandwidth_limit_kbps(self.upload_unlimited, self.upload_limit),
+            "download_limit_kbps": self._read_bandwidth_limit_kbps(self.download_unlimited, self.download_limit),
+            "log_retention_days": self.log_retention.value(),
+        }
 
     def _create_bandwidth_control(self) -> tuple[QWidget, ToggleSwitch, QLineEdit, QLabel]:
         widget = QWidget()
@@ -596,11 +780,6 @@ class SettingsPage(QWidget):
         toggle.setChecked(limit_kbps <= 0)
         value_input.setText(self._format_limit_mbit(limit_kbps))
 
-    def _sync_relay_controls(self) -> None:
-        is_custom = self.relay_mode_control.current_value() == "custom"
-        self.custom_relay.setEnabled(is_custom)
-        self.custom_relay.setPlaceholderText("relay.example.com:9009" if is_custom else "Public relay mode is active")
-
     def _sync_bandwidth_controls(self) -> None:
         for toggle, input_widget, unit_label in (
             (self.upload_unlimited, self.upload_limit, self.upload_limit_unit),
@@ -610,15 +789,16 @@ class SettingsPage(QWidget):
             input_widget.setEnabled(enabled)
             unit_label.setEnabled(enabled)
 
+    def _sync_relay_controls(self) -> None:
+        is_custom = self.relay_mode_control.current_value() == "custom"
+        self.custom_relay.setEnabled(is_custom)
+        self.custom_relay.setPlaceholderText("relay.example.com:9009" if is_custom else "Public relay mode is active")
+
     def _refresh_status_pills(self) -> None:
-        theme_label = dict(THEME_MODE_OPTIONS).get(self.theme_mode_control.current_value(), "Dark")
         accent_name = self._accent_name(self.accent_picker.current_value())
         relay_mode = self.relay_mode_control.current_value()
         current_profile = self.context.settings_service.get().current_profile.strip() or "Guest"
         debug_enabled = self.context.settings_service.get().debug_mode
-
-        self.theme_status_pill.set_variant("accent")
-        self.theme_status_pill.setText(f"Theme {theme_label}")
 
         self.accent_status_pill.set_variant("accent")
         self.accent_status_pill.setText(f"Accent {accent_name}")
@@ -641,22 +821,22 @@ class SettingsPage(QWidget):
         self.version_status_pill.set_variant("accent")
         self.version_status_pill.setText(f"Version {APP_VERSION}")
 
-    def _mark_dirty(self) -> None:
-        if self._loading:
-            return
-        self._set_dirty(True)
-        self._refresh_status_pills()
-
     def _set_dirty(self, dirty: bool) -> None:
         self._dirty = bool(dirty)
         if self._dirty:
             self.dirty_pill.set_variant("warning")
             self.dirty_pill.setText("Unsaved changes")
-            self.action_hint.setText("Review the updated preferences and save when you're ready.")
+            self.action_hint.setText("Review your changes and save when you're ready.")
         else:
             self.dirty_pill.set_variant("success")
             self.dirty_pill.setText("All changes saved")
-            self.action_hint.setText("Changes are saved locally on this device.")
+            self.action_hint.setText("Settings are stored locally.")
+
+    def _mark_dirty(self) -> None:
+        if self._loading:
+            return
+        self._set_dirty(self._current_settings_snapshot() != self._saved_settings_snapshot)
+        self._refresh_status_pills()
 
     def _apply_pending_accent(self) -> None:
         accent = self.accent_picker.current_value()
@@ -717,7 +897,7 @@ class SettingsPage(QWidget):
             self.binary_status.setText("Missing path")
             self.binary_status_label.setText("Set a binary path or re-enable auto-download.")
 
-    def _on_theme_or_accent_changed(self) -> None:
+    def _on_accent_changed(self) -> None:
         self._apply_pending_accent()
         self._refresh_status_pills()
         self._mark_dirty()
@@ -735,45 +915,6 @@ class SettingsPage(QWidget):
     def _on_bandwidth_changed(self) -> None:
         self._sync_bandwidth_controls()
         self._mark_dirty()
-
-    def _scroll_to_section(self, section_key: str) -> None:
-        card = self._section_cards.get(section_key)
-        if card is None:
-            return
-        QTimer.singleShot(0, lambda: self.scroll_area.ensureWidgetVisible(card, 0, 40))
-
-    def _rebuild_cards_layout(self) -> None:
-        width = max(self.width(), self.scroll_area.viewport().width())
-        mode = "single" if width < 1080 else "double"
-        if mode == self._layout_mode:
-            return
-        self._layout_mode = mode
-
-        while self.cards_grid.count():
-            item = self.cards_grid.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.setParent(self.cards_host)
-
-        self.cards_grid.setColumnStretch(0, 1)
-        self.cards_grid.setColumnStretch(1, 1 if mode == "double" else 0)
-
-        if mode == "single":
-            for row, card in enumerate(self._cards):
-                self.cards_grid.addWidget(card, row, 0)
-            return
-
-        self.cards_grid.addWidget(self.appearance_card, 0, 0)
-        self.cards_grid.addWidget(self.transfer_card, 0, 1)
-        self.cards_grid.addWidget(self.speed_limits_card, 1, 0)
-        self.cards_grid.addWidget(self.connection_card, 1, 1)
-        self.cards_grid.addWidget(self.profiles_card, 2, 0)
-        self.cards_grid.addWidget(self.advanced_card, 2, 1)
-        self.cards_grid.addWidget(self.updates_card, 3, 0, 1, 2)
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._rebuild_cards_layout()
 
     def pick_folder(self):
         folder = QFileDialog.getExistingDirectory(
@@ -798,6 +939,7 @@ class SettingsPage(QWidget):
         settings = self._collect_settings_from_controls()
         apply_theme(self.app, settings)
         self.context.settings_service.save(settings)
+        self._capture_saved_settings_snapshot()
         self.context.log_service.prune_old_logs(settings.log_retention_days)
         self.refresh_account_section()
         self.refresh_debug_controls()
@@ -807,16 +949,7 @@ class SettingsPage(QWidget):
         self.settings_changed.emit()
 
     def refresh_theme_mode_control(self) -> None:
-        settings = self.context.settings_service.get()
-        self._loading = True
-        try:
-            self.theme_mode_control.set_current_value(
-                normalize_theme_mode(settings.theme_mode, settings.dark_mode),
-                emit_signal=False,
-            )
-            self._refresh_status_pills()
-        finally:
-            self._loading = False
+        self._refresh_status_pills()
 
     def delete_binary(self):
         path_text = self.binary_path_row.line_edit.text().strip()
@@ -837,8 +970,10 @@ class SettingsPage(QWidget):
             settings = self.context.settings_service.get()
             settings.croc_binary_path = ""
             self.context.settings_service.save(settings)
+            self._capture_saved_settings_snapshot()
             self._refresh_binary_status()
             self._refresh_status_pills()
+            self._set_dirty(self._current_settings_snapshot() != self._saved_settings_snapshot)
             QMessageBox.information(self, "Delete Croc Binary", message)
             self.settings_changed.emit()
         else:

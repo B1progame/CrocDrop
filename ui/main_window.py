@@ -31,7 +31,6 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QVBoxLayout,
     QWidget,
-    QGraphicsOpacityEffect,
 )
 
 from ui.components.theme_switcher import ThemeSwitcher
@@ -274,7 +273,6 @@ class MainWindow(QMainWindow):
         self._active_page_name = ""
         self._nav_indicator_anim: QVariantAnimation | None = None
         self._nav_indicator_settle_anim: QVariantAnimation | None = None
-        self._page_fade_anim: QPropertyAnimation | None = None
         self.nav_indicator = SidebarActiveIndicator(self.sidebar, self.context.settings_service.get().dark_mode)
         self.nav_indicator.setObjectName("NavIndicator")
         self.home_page.navigate_requested.connect(self.navigate_to)
@@ -377,12 +375,14 @@ class MainWindow(QMainWindow):
                 else:
                     self.nav.clearSelection()
                     self.nav.setCurrentRow(-1)
+                    self.nav.setCurrentItem(None)
+                    if self.nav.selectionModel() is not None:
+                        self.nav.selectionModel().clearCurrentIndex()
 
         page_index = self.page_indices[name]
         if self.pages.currentIndex() != page_index:
+            self._clear_page_effects()
             self.pages.setCurrentIndex(page_index)
-            if animated:
-                self._fade_current_page()
 
         self._update_page_chrome(name)
         self._sync_footer_buttons(name)
@@ -439,29 +439,13 @@ class MainWindow(QMainWindow):
         self.context.settings_service.save(settings)
         self._on_settings_changed()
 
-    def _fade_current_page(self) -> None:
-        widget = self.pages.currentWidget()
-        if widget is None:
-            return
-        effect = QGraphicsOpacityEffect(widget)
-        effect.setOpacity(0.0)
-        widget.setGraphicsEffect(effect)
-        self._page_fade_anim = QPropertyAnimation(effect, b"opacity", self)
-        self._page_fade_anim.setDuration(180)
-        self._page_fade_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self._page_fade_anim.setStartValue(0.0)
-        self._page_fade_anim.setEndValue(1.0)
-
-        def _cleanup():
-            # Guard against rapid page switches where Qt already deleted the effect.
+    def _clear_page_effects(self) -> None:
+        for page in self.page_map.values():
             try:
-                if widget.graphicsEffect() is effect:
-                    widget.setGraphicsEffect(None)
+                if page.graphicsEffect() is not None:
+                    page.setGraphicsEffect(None)
             except RuntimeError:
-                return
-
-        self._page_fade_anim.finished.connect(_cleanup)
-        self._page_fade_anim.start()
+                continue
 
     def _sync_nav_indicator(self, animated: bool) -> None:
         target = self._indicator_target_for_page(self._active_page_name)
