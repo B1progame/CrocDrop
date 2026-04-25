@@ -13,6 +13,7 @@ from PySide6.QtCore import (
     QRectF,
     QSize,
     QSignalBlocker,
+    QTimer,
     Qt,
     QVariantAnimation,
 )
@@ -300,6 +301,9 @@ class MainWindow(QMainWindow):
         self.nav_indicator.setObjectName("NavIndicator")
         self.home_page.navigate_requested.connect(self.navigate_to)
         self.profile_page.navigate_requested.connect(self.navigate_to)
+        self.profile_page.settings_category_requested.connect(
+            lambda category: self.navigate_to_settings(category, animated=True)
+        )
         self.settings_page.settings_changed.connect(self._on_settings_changed)
         try:
             QApplication.instance().styleHints().colorSchemeChanged.connect(self._on_system_color_scheme_changed)
@@ -378,13 +382,33 @@ class MainWindow(QMainWindow):
     def navigate_to(self, page_name: str, animated: bool = True):
         self._show_page(page_name, animated=animated, sync_nav=True)
 
+    def navigate_to_settings(self, category: str | None = None, animated: bool = True) -> None:
+        self._show_page("Settings", animated=animated, sync_nav=True)
+        if category and hasattr(self.settings_page, "open_category"):
+            QTimer.singleShot(0, lambda: self.settings_page.open_category(category))
+
+    def _clear_nav_list_selection(self) -> None:
+        with QSignalBlocker(self.nav):
+            self.nav.clearSelection()
+            self.nav.setCurrentRow(-1)
+            self.nav.setCurrentItem(None)
+            selection_model = self.nav.selectionModel()
+            if selection_model is not None:
+                selection_model.clearSelection()
+                selection_model.clearCurrentIndex()
+        self.nav.clearFocus()
+        self.nav.viewport().update()
+
     def _on_nav_row_changed(self, index: int):
         if index < 0:
             return
         item = self.nav.item(index)
         if item is None:
             return
-        self._show_page(item.text(), animated=True, sync_nav=False)
+        page_name = item.text()
+        if page_name == self._active_page_name:
+            return
+        self._show_page(page_name, animated=True, sync_nav=False)
 
     def _show_page(self, name: str, animated: bool = True, sync_nav: bool = True):
         if name not in self.page_indices:
@@ -392,15 +416,11 @@ class MainWindow(QMainWindow):
         self._active_page_name = name
 
         if sync_nav:
-            with QSignalBlocker(self.nav):
-                if name in self.nav_rows:
+            if name in self.nav_rows:
+                with QSignalBlocker(self.nav):
                     self.nav.setCurrentRow(self.nav_rows[name])
-                else:
-                    self.nav.clearSelection()
-                    self.nav.setCurrentRow(-1)
-                    self.nav.setCurrentItem(None)
-                    if self.nav.selectionModel() is not None:
-                        self.nav.selectionModel().clearCurrentIndex()
+            else:
+                self._clear_nav_list_selection()
 
         page_index = self.page_indices[name]
         if self.pages.currentIndex() != page_index:
@@ -411,6 +431,8 @@ class MainWindow(QMainWindow):
         self._sync_footer_buttons(name)
         self._refresh_sidebar_icons()
         self._sync_nav_indicator(animated=animated)
+        if name in self.footer_buttons:
+            QTimer.singleShot(0, lambda: self._sync_nav_indicator(animated=False))
 
     def _update_page_chrome(self, name: str):
         self.header_title.setText(name or "CrocDrop")
@@ -466,6 +488,11 @@ class MainWindow(QMainWindow):
         self._on_settings_changed()
 
     def _clear_page_effects(self) -> None:
+        page_fade_anim = getattr(self, "_page_fade_anim", None)
+        if page_fade_anim is not None:
+            page_fade_anim.stop()
+            page_fade_anim.deleteLater()
+            self._page_fade_anim = None
         for page in self.page_map.values():
             try:
                 if page.graphicsEffect() is not None:

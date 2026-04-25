@@ -657,6 +657,21 @@ class SettingsPage(QWidget):
         self.content_stack.setCurrentWidget(self.category_pages[category_id])
         self._refresh_category_button_states()
 
+    def open_category(self, category_id: str) -> None:
+        aliases = {
+            "profile": "profiles",
+            "profiles": "profiles",
+            "account": "profiles",
+            "general": "general",
+            "transfers": "transfers",
+            "speed": "speed",
+            "speed_limits": "speed",
+            "connection": "connection",
+            "advanced": "advanced",
+            "updates": "updates",
+        }
+        self._switch_category(aliases.get(category_id, category_id))
+
     def _refresh_category_button_states(self) -> None:
         for category_id, button in self.category_buttons.items():
             selected = category_id == self._current_category

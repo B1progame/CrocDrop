@@ -12,6 +12,7 @@ from ui.components.common import Card, PageHeader
 
 class ProfilePage(QWidget):
     navigate_requested = Signal(str)
+    settings_category_requested = Signal(str)
 
     def __init__(self, context):
         super().__init__()
@@ -48,7 +49,7 @@ class ProfilePage(QWidget):
 
         manage_btn = QPushButton("Manage Profile")
         manage_btn.setObjectName("PrimaryButton")
-        manage_btn.clicked.connect(lambda: self.navigate_requested.emit("Settings"))
+        manage_btn.clicked.connect(lambda: self.settings_category_requested.emit("profiles"))
         hero_layout.addWidget(manage_btn)
 
         details = Card("Local Profile Details")
