@@ -616,6 +616,37 @@ def apply_theme(app, settings: AppSettings) -> None:
             border-radius: 12px;
             padding: 8px 10px;
         }}
+        QFrame#NumberStepper {{
+            background: {palette['input_bg_alt']};
+            border: 1px solid {palette['line_soft']};
+            border-radius: 14px;
+        }}
+        QPushButton#NumberStepperButton {{
+            background: {palette['surface_2']};
+            color: {palette['text']};
+            border: 0;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 800;
+            padding: 0;
+        }}
+        QPushButton#NumberStepperButton:hover {{
+            background: {palette['hover']};
+        }}
+        QPushButton#NumberStepperButton:pressed {{
+            background: {palette['pressed']};
+        }}
+        QPushButton#NumberStepperButton:disabled {{
+            color: {palette['text_soft']};
+            background: {palette['surface_1']};
+        }}
+        QLabel#NumberStepperValue {{
+            color: {palette['text']};
+            background: transparent;
+            font-size: 13px;
+            font-weight: 700;
+            padding: 0 6px;
+        }}
         QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus {{
             border-color: {accent};
         }}

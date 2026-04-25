@@ -380,6 +380,73 @@ class ToggleSwitch(QCheckBox):
         painter.drawEllipse(knob_rect)
 
 
+class NumberStepper(QFrame):
+    valueChanged = Signal(int)
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("NumberStepper")
+        self._minimum = 0
+        self._maximum = 99
+        self._value = 0
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
+
+        self.minus_button = QPushButton("-")
+        self.minus_button.setObjectName("NumberStepperButton")
+        self.minus_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.minus_button.setAutoRepeat(True)
+        self.minus_button.setAutoRepeatDelay(360)
+        self.minus_button.setAutoRepeatInterval(90)
+        self.minus_button.setFixedSize(32, 30)
+
+        self.value_label = QLabel("0")
+        self.value_label.setObjectName("NumberStepperValue")
+        self.value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.value_label.setMinimumWidth(56)
+
+        self.plus_button = QPushButton("+")
+        self.plus_button.setObjectName("NumberStepperButton")
+        self.plus_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.plus_button.setAutoRepeat(True)
+        self.plus_button.setAutoRepeatDelay(360)
+        self.plus_button.setAutoRepeatInterval(90)
+        self.plus_button.setFixedSize(32, 30)
+
+        layout.addWidget(self.minus_button)
+        layout.addWidget(self.value_label, 1)
+        layout.addWidget(self.plus_button)
+
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+        self.minus_button.clicked.connect(lambda: self.setValue(self._value - 1))
+        self.plus_button.clicked.connect(lambda: self.setValue(self._value + 1))
+        self._refresh()
+
+    def setRange(self, minimum: int, maximum: int) -> None:
+        self._minimum = int(minimum)
+        self._maximum = max(self._minimum, int(maximum))
+        self.setValue(self._value)
+
+    def value(self) -> int:
+        return self._value
+
+    def setValue(self, value: int) -> None:
+        bounded = max(self._minimum, min(self._maximum, int(value)))
+        changed = bounded != self._value
+        self._value = bounded
+        self._refresh()
+        if changed:
+            self.valueChanged.emit(self._value)
+
+    def _refresh(self) -> None:
+        self.value_label.setText(str(self._value))
+        self.minus_button.setEnabled(self._value > self._minimum)
+        self.plus_button.setEnabled(self._value < self._maximum)
+
+
 class ColorSwatchButton(QPushButton):
     def __init__(self, name: str, color: str, parent: QWidget | None = None):
         super().__init__(parent)
@@ -472,28 +539,52 @@ class PathInputRow(QWidget):
         placeholder: str = "",
         button_text: str = "Browse",
         extra_button_text: str | None = None,
+        line_edit_min_width: int = 420,
+        buttons_below: bool = False,
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
-        layout = QHBoxLayout(self)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._buttons_below = bool(buttons_below)
+        if self._buttons_below:
+            layout = QVBoxLayout(self)
+            layout.setSpacing(6)
+        else:
+            layout = QHBoxLayout(self)
+            layout.setSpacing(8)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
 
         self.line_edit = QLineEdit()
         self.line_edit.setObjectName("PathInput")
         self.line_edit.setClearButtonEnabled(True)
         self.line_edit.setPlaceholderText(placeholder)
-        layout.addWidget(self.line_edit, 1)
+        self.line_edit.setMinimumWidth(max(120, int(line_edit_min_width)))
+        self.line_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        if self._buttons_below:
+            layout.addWidget(self.line_edit)
+            button_row = QWidget()
+            button_layout = QHBoxLayout(button_row)
+            button_layout.setContentsMargins(0, 0, 0, 0)
+            button_layout.setSpacing(8)
+            button_layout.addStretch(1)
+        else:
+            layout.addWidget(self.line_edit, 1)
+            button_layout = layout
 
         self.primary_button = QPushButton(button_text)
         self.primary_button.setObjectName("SecondaryButton")
-        layout.addWidget(self.primary_button)
+        self.primary_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        button_layout.addWidget(self.primary_button)
 
         self.extra_button: QPushButton | None = None
         if extra_button_text:
             self.extra_button = QPushButton(extra_button_text)
             self.extra_button.setObjectName("GhostButton")
-            layout.addWidget(self.extra_button)
+            self.extra_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            button_layout.addWidget(self.extra_button)
+
+        if self._buttons_below:
+            layout.addWidget(button_row)
 
 
 class CollapsibleOutputSection(Card):

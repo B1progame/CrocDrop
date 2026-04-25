@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
-    QSpinBox,
+    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 from app.version import APP_VERSION
 from ui.components.common import (
     ColorSwatchPicker,
+    NumberStepper,
     PathInputRow,
     SegmentedControl,
     SettingsCard,
@@ -268,9 +269,8 @@ class SettingsPage(QWidget):
     def _build_general_page(self) -> QWidget:
         self.accent_picker = ColorSwatchPicker(list(self.ACCENT_OPTIONS))
         self.remember_last = ToggleSwitch()
-        self.log_retention = QSpinBox()
+        self.log_retention = NumberStepper()
         self.log_retention.setRange(1, 120)
-        self.log_retention.setMaximumWidth(96)
 
         log_widget = QWidget()
         log_layout = QHBoxLayout(log_widget)
@@ -362,12 +362,14 @@ class SettingsPage(QWidget):
         (
             self.upload_limit_widget,
             self.upload_unlimited,
+            self.upload_limit_editor,
             self.upload_limit,
             self.upload_limit_unit,
         ) = self._create_bandwidth_control()
         (
             self.download_limit_widget,
             self.download_unlimited,
+            self.download_limit_editor,
             self.download_limit,
             self.download_limit_unit,
         ) = self._create_bandwidth_control()
@@ -398,6 +400,8 @@ class SettingsPage(QWidget):
         self.custom_relay = QLineEdit()
         self.custom_relay.setPlaceholderText("relay.example.com:9009")
         self.custom_relay.setClearButtonEnabled(True)
+        self.custom_relay.setMinimumWidth(420)
+        self.custom_relay.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         relay_card = SettingsCard("Relay", "Choose the default relay mode used by transfers.")
         relay_card.add_widget(
@@ -424,6 +428,8 @@ class SettingsPage(QWidget):
             placeholder="Select the croc executable path",
             button_text="Browse Binary",
             extra_button_text="Delete Binary",
+            line_edit_min_width=320,
+            buttons_below=True,
         )
         if self.binary_path_row.extra_button is not None:
             self.binary_path_row.extra_button.setObjectName("DangerButton")
@@ -771,7 +777,7 @@ class SettingsPage(QWidget):
             "log_retention_days": self.log_retention.value(),
         }
 
-    def _create_bandwidth_control(self) -> tuple[QWidget, ToggleSwitch, QLineEdit, QLabel]:
+    def _create_bandwidth_control(self) -> tuple[QWidget, ToggleSwitch, QWidget, QLineEdit, QLabel]:
         widget = QWidget()
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -790,24 +796,30 @@ class SettingsPage(QWidget):
         unit_label = QLabel("Mbit/s")
         unit_label.setObjectName("SettingsDescription")
 
+        editor_widget = QWidget()
+        editor_layout = QHBoxLayout(editor_widget)
+        editor_layout.setContentsMargins(0, 0, 0, 0)
+        editor_layout.setSpacing(8)
+        editor_layout.addWidget(value_input)
+        editor_layout.addWidget(unit_label)
+
         layout.addWidget(unlimited)
         layout.addWidget(unlimited_label)
-        layout.addSpacing(4)
-        layout.addWidget(value_input)
-        layout.addWidget(unit_label)
+        layout.addWidget(editor_widget)
         layout.addStretch(1)
-        return widget, unlimited, value_input, unit_label
+        return widget, unlimited, editor_widget, value_input, unit_label
 
     def _set_bandwidth_control(self, limit_kbps: int, toggle: ToggleSwitch, value_input: QLineEdit) -> None:
         toggle.setChecked(limit_kbps <= 0)
         value_input.setText(self._format_limit_mbit(limit_kbps))
 
     def _sync_bandwidth_controls(self) -> None:
-        for toggle, input_widget, unit_label in (
-            (self.upload_unlimited, self.upload_limit, self.upload_limit_unit),
-            (self.download_unlimited, self.download_limit, self.download_limit_unit),
+        for toggle, editor_widget, input_widget, unit_label in (
+            (self.upload_unlimited, self.upload_limit_editor, self.upload_limit, self.upload_limit_unit),
+            (self.download_unlimited, self.download_limit_editor, self.download_limit, self.download_limit_unit),
         ):
             enabled = not toggle.isChecked()
+            editor_widget.setVisible(enabled)
             input_widget.setEnabled(enabled)
             unit_label.setEnabled(enabled)
 
