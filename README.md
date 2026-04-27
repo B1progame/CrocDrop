@@ -97,7 +97,7 @@ Manual flow:
 Automated flow (PowerShell):
 
 ```powershell
-.\installer\build_installer.ps1 -Version 1.3.0
+.\installer\build_installer.ps1 -Version 1.3.1
 ```
 
 ## Publish Release (No Manual Asset Upload)
@@ -110,7 +110,7 @@ Prerequisite:
 PowerShell:
 
 ```powershell
-.\installer\publish_release.ps1 -Version 1.3.0
+.\installer\publish_release.ps1 -Version 1.3.1
 ```
 
 Batch (uses version from `app/version.py` if omitted):

@@ -1,11 +1,18 @@
 # UI Changelog
 
-## v1.3.0
+## v1.3.1
 - Fixed the startup flicker/open-close loop by stabilizing bootstrap flow around one splash window and one main window.
 - Deferred croc detection until after the first UI paint so startup no longer blocks the shell.
 - Added startup diagnostics logging for bootstrap phases, process context, main window show, and deferred croc checks.
 - Added a compact startup window with status text while settings, services, and profile selection are prepared.
 - Added single-instance protection for normal launches while keeping `--debug-peer` available for dual-instance testing.
+- Compressed CrocDrop share codes now use a compact embedded `z` marker instead of exposing archive filenames.
+- Old `::cd1:z7:<archive>.7z` compressed codes remain supported for backward-compatible receives.
+- Receive auto-extract still runs only for marked compressed transfers, without requiring the archive filename in the visible code.
+- Managed 7-Zip CLI is now auto-installed in the background when missing and reused for future compressed transfers.
+- Compressed send now shows 7-Zip download, compression, and transfer startup progress without blocking the UI.
+- Compressed receive now shows archive extraction progress and keeps the archive when extraction fails.
+- Installer uninstall now removes the managed 7-Zip CLI from CrocDrop's app-data tools folder.
 
 ## v1.2.x
 - Added optional 7-Zip send compression with automatic receive-side extraction.

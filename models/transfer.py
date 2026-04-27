@@ -6,7 +6,7 @@ from typing import Literal
 from uuid import uuid4
 
 TransferDirection = Literal["send", "receive", "selftest-send", "selftest-receive"]
-TransferStatus = Literal["queued", "running", "completed", "failed", "canceled"]
+TransferStatus = Literal["queued", "preparing", "running", "completed", "failed", "canceled"]
 
 
 @dataclass(slots=True)
@@ -26,6 +26,11 @@ class TransferRecord:
     auto_extracted: bool = False
     bytes_total: int = 0
     bytes_done: int = 0
+    phase: str = ""
+    phase_message: str = ""
+    phase_percent: float | None = None
+    phase_eta_seconds: float | None = None
+    phase_indeterminate: bool = False
     speed_text: str = ""
     relay: str = "public"
     croc_version: str = ""

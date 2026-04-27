@@ -4,7 +4,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QApplication
@@ -147,4 +147,8 @@ def build_app(debug_peer: bool = False, startup_diagnostics: StartupDiagnostics 
     startup_window.set_status("Finalizing startup...", progress=92)
     window.attach_startup_window(startup_window)
     startup.log_phase("mainwindow.create.end")
+    QTimer.singleShot(
+        1500,
+        lambda: sevenzip_service.ensure_managed_cli_async(enabled=settings_service.get().auto_install_7zip_cli),
+    )
     return qt_app, window

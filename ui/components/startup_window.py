@@ -39,7 +39,7 @@ class StartupWindow(QFrame):
         self.setObjectName("StartupWindow")
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setFixedSize(380, 240)
+        self.setFixedSize(420, 300)
         if icon is not None and not icon.isNull():
             self.setWindowIcon(icon)
 
@@ -88,6 +88,7 @@ class StartupWindow(QFrame):
 
         self.logo_label = QLabel()
         self.logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.logo_label.setFixedSize(92, 92)
         self.logo_label.setPixmap(self._load_logo_pixmap(logo_path, icon))
 
         self.title_label = QLabel(title)
@@ -143,14 +144,14 @@ class StartupWindow(QFrame):
     def _load_logo_pixmap(logo_path: Path | None, icon: QIcon | None) -> QPixmap:
         if logo_path is not None and logo_path.exists():
             renderer = QSvgRenderer(str(logo_path))
-            pix = QPixmap(78, 78)
+            pix = QPixmap(92, 92)
             pix.fill(Qt.GlobalColor.transparent)
             painter = QPainter(pix)
-            renderer.render(painter)
+            renderer.render(painter, QRectF(2, 2, 88, 88))
             painter.end()
             return pix
         if icon is not None and not icon.isNull():
-            return icon.pixmap(78, 78)
-        pix = QPixmap(78, 78)
+            return icon.pixmap(92, 92)
+        pix = QPixmap(92, 92)
         pix.fill(Qt.GlobalColor.transparent)
         return pix

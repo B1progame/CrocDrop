@@ -1,5 +1,5 @@
 #define MyAppName "CrocDrop"
-#define MyAppVersion "1.3.0"
+#define MyAppVersion "1.3.1"
 #define MyAppPublisher "B1progame"
 #define MyAppURL "https://github.com/B1progame/CrocDrop"
 #define MyAppExeName "CrocDrop.exe"
@@ -43,3 +43,8 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilen
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+[UninstallDelete]
+Type: files; Name: "{userappdata}\CrocDrop\tools\7zip\7zr.exe"
+Type: dirifempty; Name: "{userappdata}\CrocDrop\tools\7zip"
+Type: dirifempty; Name: "{userappdata}\CrocDrop\tools"

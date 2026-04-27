@@ -65,7 +65,8 @@ class HistoryService(QObject):
 
     def mark_started(self, record: TransferRecord) -> None:
         record.status = "running"
-        record.started_at = datetime.utcnow().isoformat()
+        if not record.started_at:
+            record.started_at = datetime.utcnow().isoformat()
         self.update(record)
 
     def mark_finished(self, record: TransferRecord, status: str, error: str = "") -> None:

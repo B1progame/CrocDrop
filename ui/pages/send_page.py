@@ -54,21 +54,26 @@ class SendPage(QWidget):
         self.cancel_btn.setEnabled(False)
         copy_btn = QPushButton("Copy Code")
         copy_next_btn = QPushButton("Copy Next Code")
+        clear_btn = QPushButton("Clear")
         code_row.addWidget(self.start_btn)
         code_row.addWidget(self.cancel_btn)
         code_row.addWidget(copy_btn)
         code_row.addWidget(copy_next_btn)
+        code_row.addWidget(clear_btn)
         code_row.addStretch(1)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         self.progress.setFormat("Progress: %p%")
+        self.progress_status = QLabel("Ready")
+        self.progress_status.setProperty("role", "muted")
         code_card.layout.addWidget(self.code)
         code_card.layout.addWidget(self.next_code)
         code_card.layout.addWidget(self.next_code_expiry)
         code_card.layout.addLayout(code_row)
         code_card.layout.addWidget(self.progress)
+        code_card.layout.addWidget(self.progress_status)
 
         self.output_section = CollapsibleOutputSection("Live Output", "Croc send process stream", max_blocks=1200)
         self.output = self.output_section.output
@@ -89,11 +94,46 @@ class SendPage(QWidget):
         self.cancel_btn.clicked.connect(self.cancel_send)
         copy_btn.clicked.connect(self.copy_code)
         copy_next_btn.clicked.connect(self.copy_next_code)
+        clear_btn.clicked.connect(self.clear_send_page)
 
         self.context.transfer_service.transfer_output.connect(self.on_transfer_output)
         self.context.transfer_service.transfer_updated.connect(self.on_transfer_updated)
         self.context.transfer_service.transfer_finished.connect(self.on_transfer_finished)
         self.context.transfer_service.next_code_ready.connect(self.on_next_code_ready)
+
+    @staticmethod
+    def _format_eta(seconds: float | None) -> str:
+        if seconds is None or seconds < 1:
+            return ""
+        total_seconds = max(1, int(round(seconds)))
+        minutes, secs = divmod(total_seconds, 60)
+        hours, minutes = divmod(minutes, 60)
+        if hours:
+            return f"{hours:d}:{minutes:02d}:{secs:02d}"
+        return f"{minutes:02d}:{secs:02d}"
+
+    def _apply_progress_display(
+        self,
+        *,
+        message: str,
+        percent: float | None = None,
+        eta_seconds: float | None = None,
+        indeterminate: bool = False,
+    ) -> None:
+        eta_text = self._format_eta(eta_seconds)
+        status_text = message
+        if percent is not None and not indeterminate:
+            status_text = f"{message} {int(round(percent))}%"
+        if eta_text:
+            status_text = f"{status_text} | ETA {eta_text}"
+        self.progress_status.setText(status_text)
+        if indeterminate:
+            self.progress.setRange(0, 0)
+            self.progress.setFormat(message)
+            return
+        self.progress.setRange(0, 100)
+        self.progress.setValue(max(0, min(100, int(round(percent or 0)))))
+        self.progress.setFormat("%p%")
 
     def _sync_output_layout_stretch(self, root: QVBoxLayout, expanded: bool) -> None:
         output_index = root.indexOf(self.output_section)
@@ -112,33 +152,72 @@ class SendPage(QWidget):
         if folder:
             self.drop.add_path(folder)
 
+    def clear_send_page(self):
+        if self.current_transfer_id:
+            record = self.context.transfer_service.get_record(self.current_transfer_id)
+            if record and record.status in {"preparing", "running"}:
+                QMessageBox.information(
+                    self,
+                    "Upload In Progress",
+                    "Cancel the current upload before clearing the send form.",
+                )
+                return
+        self._reset_send_form()
+
     def start_send(self):
         paths = self.drop.paths()
         if not paths:
             QMessageBox.warning(self, "No files", "Add at least one file or folder")
             return
+        compress_enabled = self.compress_toggle.isChecked()
+        self.pending_output_lines.clear()
+        self.output.clear()
+        self.next_code.clear()
+        self.next_code_expiry.clear()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setFormat("%p%")
+        self.progress_status.setText("Preparing send...")
+        self.start_btn.setEnabled(False)
+        self.cancel_btn.setEnabled(False)
         try:
             record = self.context.transfer_service.start_send(
                 paths,
-                compress_7zip=self.compress_toggle.isChecked(),
+                compress_7zip=compress_enabled,
             )
         except Exception as exc:
+            self.progress.setRange(0, 100)
+            self.progress.setValue(0)
+            self.progress.setFormat("%p%")
+            self.progress_status.setText("Ready")
+            self.start_btn.setEnabled(True)
             QMessageBox.critical(self, "Send failed", str(exc))
             return
         self.current_transfer_id = record.transfer_id
+        self.code.setText(record.code_phrase)
+        QGuiApplication.clipboard().setText(record.code_phrase)
+        self.output.appendPlainText(f"Started transfer {record.transfer_id}")
+        self.output.appendPlainText("[system] CrocDrop share code copied to clipboard.")
+        if record.compression_mode == "7zip":
+            self.output.appendPlainText("[system] Compression enabled. Share this CrocDrop code with the receiver:")
+            self.output.appendPlainText(f"[system] {record.code_phrase}")
+        self.on_transfer_updated(record.transfer_id)
+
+    def _reset_send_form(self):
+        self.current_transfer_id = ""
         self.pending_output_lines.clear()
-        self.output.clear()
-        self.progress.setValue(0)
+        self.output_flush_timer.stop()
+        self.drop.clear()
+        self.code.clear()
         self.next_code.clear()
         self.next_code_expiry.clear()
-        self.start_btn.setEnabled(False)
-        self.cancel_btn.setEnabled(True)
-        self.output.appendPlainText(f"Started transfer {record.transfer_id}")
-        if record.compression_mode == "7zip":
-            self.output.appendPlainText(
-                f"[system] Packed selection into {record.archive_name}. "
-                "The shared code includes auto-extract info for the receiver."
-            )
+        self.output.clear()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setFormat("%p%")
+        self.progress_status.setText("Ready")
+        self.start_btn.setEnabled(True)
+        self.cancel_btn.setEnabled(False)
 
     def cancel_send(self):
         if not self.current_transfer_id:
@@ -171,9 +250,28 @@ class SendPage(QWidget):
         record = self.context.transfer_service.get_record(transfer_id)
         if not record:
             return
-        if record.code_phrase:
+        if record.code_phrase and self.code.text() != record.code_phrase:
             self.code.setText(record.code_phrase)
-        self.progress.setValue(max(0, min(100, int(record.bytes_done))))
+        if record.phase_message:
+            self._apply_progress_display(
+                message=record.phase_message,
+                percent=record.phase_percent,
+                eta_seconds=record.phase_eta_seconds,
+                indeterminate=record.phase_indeterminate,
+            )
+        else:
+            self.progress.setRange(0, 100)
+            self.progress.setValue(max(0, min(100, int(record.bytes_done))))
+            self.progress.setFormat("%p%")
+            if record.status == "running":
+                self.progress_status.setText("Sending...")
+            elif record.status == "completed":
+                self.progress_status.setText("Completed")
+            elif record.status == "failed":
+                self.progress_status.setText("Failed")
+            else:
+                self.progress_status.setText("Ready")
+        self.cancel_btn.setEnabled(record.status == "running")
 
     def flush_output(self):
         if not self.pending_output_lines:
@@ -190,8 +288,13 @@ class SendPage(QWidget):
         self.flush_output()
         if status == "completed":
             self.progress.setValue(100)
+            self.progress.setFormat("%p%")
+            self.progress_status.setText("Completed")
         if status == "canceled":
             self.output.appendPlainText("[system] Upload canceled")
+            self.progress_status.setText("Canceled")
+        if status == "failed":
+            self.progress_status.setText("Failed")
         self.current_transfer_id = ""
         self.start_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)

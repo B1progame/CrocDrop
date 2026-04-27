@@ -173,6 +173,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("CrocDrop")
         self.resize(1320, 860)
         self.setMinimumSize(1060, 720)
+        self.setWindowOpacity(0.0)
         if self.logo_path.exists():
             self.setWindowIcon(QIcon(str(self.logo_path)))
 
@@ -365,15 +366,25 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     def _show_after_startup(self) -> None:
-        if self._startup_window is not None:
+        startup_window = self._startup_window
+        if startup_window is not None:
             try:
-                self._startup_window.set_status("Ready", progress=100)
+                startup_window.set_status("Ready", progress=100)
                 QApplication.processEvents()
-                self._startup_window.close()
             except Exception:
                 pass
             self._startup_window = None
         self._log_startup("startup.transition.complete")
+        self._show_ready_window()
+        if startup_window is not None:
+            try:
+                startup_window.close()
+                startup_window.deleteLater()
+            except Exception:
+                pass
+
+    def _show_ready_window(self) -> None:
+        self.setWindowOpacity(1.0)
         self.show()
         self.raise_()
         self.activateWindow()

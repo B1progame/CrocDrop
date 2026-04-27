@@ -5,6 +5,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import zipfile
 from pathlib import Path
@@ -43,6 +44,16 @@ class CrocManager:
         req = Request(url, headers={"User-Agent": "CrocDrop/1.0"})
         with urlopen(req, timeout=60) as response:
             return response.read()
+
+    def _hidden_subprocess_kwargs(self) -> dict:
+        kwargs: dict = {}
+        if sys.platform.startswith("win"):
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = 0
+            kwargs["startupinfo"] = startupinfo
+        return kwargs
 
     def detect_binary(self) -> CrocBinaryInfo:
         settings = self.settings_service.get()
@@ -206,7 +217,13 @@ class CrocManager:
                 return ""
             binary_path = Path(info.path)
         try:
-            proc = subprocess.run([str(binary_path), "--version"], capture_output=True, text=True, timeout=10)
+            proc = subprocess.run(
+                [str(binary_path), "--version"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                **self._hidden_subprocess_kwargs(),
+            )
             out = (proc.stdout or proc.stderr).strip().splitlines()
             return out[0] if out else "unknown"
         except Exception as exc:
@@ -226,7 +243,13 @@ class CrocManager:
             return cached
 
         try:
-            proc = subprocess.run([str(binary_path), "--help"], capture_output=True, text=True, timeout=10)
+            proc = subprocess.run(
+                [str(binary_path), "--help"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                **self._hidden_subprocess_kwargs(),
+            )
             help_text = f"{proc.stdout}\n{proc.stderr}"
         except Exception as exc:
             self.log.warning("Unable to detect croc flag support: %s", exc)
@@ -256,12 +279,21 @@ class CrocManager:
 
         return args
 
+    def _build_runtime_behavior_args(self, binary_path: Path) -> list[str]:
+        supported = self._supported_global_flags(binary_path)
+        args: list[str] = []
+        if "disable-clipboard" in supported:
+            args.append("--disable-clipboard")
+        return args
+
     def launch_send(self, paths: list[str], code_phrase: str = "") -> subprocess.Popen:
         info = self.ensure_binary(auto_download=self.settings_service.get().auto_download_croc)
+        binary_path = Path(info.path)
         cmd = [
             info.path,
             *self.build_relay_args(),
-            *self._build_speed_limit_args(Path(info.path), "send"),
+            *self._build_speed_limit_args(binary_path, "send"),
+            *self._build_runtime_behavior_args(binary_path),
             "--ignore-stdin",
             "--no-compress",
             "send",
@@ -272,7 +304,8 @@ class CrocManager:
             cmd.extend(["--code", code_phrase.strip()])
         cmd.extend(paths)
         runtime_cwd = croc_runtime_dir()
-        self.log.info("Starting send process: %s | cwd=%s", cmd, runtime_cwd)
+        hidden_kwargs = self._hidden_subprocess_kwargs()
+        self.log.info("Starting send process: %s | cwd=%s | hidden_console=%s", cmd, runtime_cwd, bool(hidden_kwargs))
         return subprocess.Popen(
             cmd,
             cwd=str(runtime_cwd),
@@ -283,14 +316,17 @@ class CrocManager:
             encoding="utf-8",
             errors="replace",
             bufsize=1,
+            **hidden_kwargs,
         )
 
     def launch_receive(self, code_phrase: str, destination: str, overwrite: bool) -> subprocess.Popen:
         info = self.ensure_binary(auto_download=self.settings_service.get().auto_download_croc)
+        binary_path = Path(info.path)
         cmd = [
             info.path,
             *self.build_relay_args(),
-            *self._build_speed_limit_args(Path(info.path), "receive"),
+            *self._build_speed_limit_args(binary_path, "receive"),
+            *self._build_runtime_behavior_args(binary_path),
             "--yes",
             "--ignore-stdin",
             "--no-compress",
@@ -299,7 +335,8 @@ class CrocManager:
             cmd.append("--overwrite")
         cmd.extend(["--out", destination, code_phrase])
         runtime_cwd = croc_runtime_dir()
-        self.log.info("Starting receive process: %s | cwd=%s", cmd, runtime_cwd)
+        hidden_kwargs = self._hidden_subprocess_kwargs()
+        self.log.info("Starting receive process: %s | cwd=%s | hidden_console=%s", cmd, runtime_cwd, bool(hidden_kwargs))
         return subprocess.Popen(
             cmd,
             cwd=str(runtime_cwd),
@@ -310,6 +347,7 @@ class CrocManager:
             encoding="utf-8",
             errors="replace",
             bufsize=1,
+            **hidden_kwargs,
         )
 
     def diagnostics(self) -> dict:

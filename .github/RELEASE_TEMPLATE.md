@@ -1,21 +1,29 @@
-# CrocDrop v1.1.1 - Silent Installer Updates + Release Upload Automation
+# CrocDrop v1.3.1 - Cleaner Compressed Transfers + Startup Polish
 
 ## Highlights
-- In-app updater now supports **installer `.exe` assets** and runs upgrades silently (no click-through wizard).
-- Added automated GitHub release upload scripts to publish the newest installer asset without manual drag-and-drop.
-- Synced version defaults and metadata to `1.1.1` across app and installer tooling.
+- Compressed CrocDrop codes now use a compact embedded `z` marker instead of exposing temporary archive filenames.
+- Managed 7-Zip CLI setup is smoother, reused across transfers, and shows visible download/compression/extraction progress.
+- CrocDrop now keeps croc subprocesses hidden on Windows so send/receive stays GUI-only.
 
 ## What Changed
-- Updater asset selection now prefers `.exe` installer assets, with `.zip` fallback.
-- Silent installer update flow added using Inno Setup silent flags.
-- Added `installer/publish_release.ps1` and `installer/publish_release.bat`.
-- Updated build/publish fallbacks and docs to current version.
+- Reworked compressed share-code parsing and generation while keeping old `::cd1:z7:<archive>.7z` codes compatible.
+- Updated send output, copy behavior, and croc output handling so the CrocDrop share code stays the user-facing source of truth.
+- Added safer receive-side archive detection for compressed transfers without relying on visible archive names.
+- Added progress-aware 7-Zip download, compression, and extraction handling with percentage/ETA where 7-Zip reports it.
+- Added managed 7-Zip background preinstall and installer cleanup for CrocDrop-managed tools.
+- Added a Send page Clear button for resetting selected files, codes, progress, and output before starting a new upload.
+- Improved startup splash sizing/logo rendering and tightened the splash-to-main-window transition.
+- Suppressed visible Windows console windows when CrocDrop launches croc subprocesses.
+- Bumped app and installer metadata to `1.3.1`.
 
 ## User Impact
-- Users can update from Settings without going through installer UI.
-- Releases can be published with the correct installer asset in one command.
-- Better consistency between tags, installer filenames, and in-app version checks.
+- Compressed transfer codes are shorter, cleaner, and no longer reveal temporary archive filenames.
+- Receivers can still paste old compressed codes, and new compressed receives still auto-extract when safe.
+- Compressed sends feel less stuck because 7-Zip setup and preparation now report what is happening.
+- Starting send/receive should no longer flash or leave behind CMD windows in the installed app.
+- The Send page is easier to reuse for a new upload after a transfer finishes.
 
 ## Notes
-- For updater compatibility, each release should include a Windows installer `.exe` asset.
-- If installed in a protected location, Windows may still require elevation during update apply.
+- Each release should continue to include the Windows installer `.exe` asset for updater compatibility.
+- Auto-extraction still only runs for marked compressed CrocDrop transfers and keeps the archive if extraction fails.
+- The managed 7-Zip CLI is stored in CrocDrop's app-data tools folder and removed by uninstall cleanup when present.

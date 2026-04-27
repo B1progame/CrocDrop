@@ -12,7 +12,7 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
         $Version = ($Version | Select-Object -First 1).ToString().Trim()
     }
     catch {
-        $Version = "1.3.0"
+        $Version = "1.3.1"
     }
 }
 
