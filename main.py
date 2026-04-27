@@ -1,10 +1,14 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
+import multiprocessing
 import os
 import sys
 
 from app.bootstrap import build_app
+from app.version import APP_NAME
+from utils.single_instance import SingleInstanceGuard
+from utils.startup_diagnostics import StartupDiagnostics
 
 
 def parse_args() -> argparse.Namespace:
@@ -15,12 +19,15 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    # In windowed/installer builds, stdout/stderr may be None. Argparse and other libs
-    # may try to write to these streams, so provide a safe sink.
+    startup = StartupDiagnostics()
+
     if sys.stdout is None:
         sys.stdout = open(os.devnull, "w", encoding="utf-8")
     if sys.stderr is None:
         sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
+    startup.log_process_context("main.entry")
+    multiprocessing.freeze_support()
 
     if sys.platform.startswith("win"):
         try:
@@ -31,9 +38,28 @@ def main() -> int:
             pass
 
     args = parse_args()
-    qt_app, window = build_app(debug_peer=args.debug_peer)
-    window.show()
-    return qt_app.exec()
+    startup.log_phase("args.parsed", debug_peer=bool(args.debug_peer))
+
+    instance_guard = None
+    if not args.debug_peer:
+        instance_guard = SingleInstanceGuard(f"Local\\{APP_NAME}-SingleInstance")
+        startup.log_phase("single_instance.acquire.start")
+        if not instance_guard.acquire():
+            startup.log_phase("single_instance.acquire.duplicate")
+            return 0
+        startup.log_phase("single_instance.acquire.end")
+
+    qt_app, window = build_app(debug_peer=args.debug_peer, startup_diagnostics=startup)
+    startup.log_phase("mainwindow.show.schedule")
+    window.begin_initial_show()
+
+    try:
+        exit_code = qt_app.exec()
+        startup.log_phase("app.exec.exit", exit_code=exit_code)
+        return exit_code
+    finally:
+        if instance_guard is not None:
+            instance_guard.release()
 
 
 if __name__ == "__main__":

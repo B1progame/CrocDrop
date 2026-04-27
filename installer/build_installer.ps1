@@ -12,7 +12,7 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
         $Version = ($Version | Select-Object -First 1).ToString().Trim()
     }
     catch {
-        $Version = "1.1.1"
+        $Version = "1.3.0"
     }
 }
 
@@ -21,6 +21,7 @@ if (-not (Test-Path ".\.venv\Scripts\python.exe")) {
     python -m venv .venv
 }
 
+if (-not (Test-Path ".\installer\CrocDrop.ico")) {
 Write-Host "[CrocDrop] Preparing installer icon from assets/crocdrop_lock_logo.svg..."
 $iconGenScript = @'
 from pathlib import Path
@@ -93,6 +94,9 @@ finally {
         Remove-Item $tempScript -Force
     }
 }
+} else {
+    Write-Host "[CrocDrop] Reusing existing installer icon .\installer\CrocDrop.ico"
+}
 
 Write-Host "[CrocDrop] Installing requirements..."
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
@@ -108,23 +112,33 @@ Write-Host "[CrocDrop] Building desktop bundle..."
 # Prevent common lock failures from a running packaged app.
 Get-Process -Name "CrocDrop" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
+$buildDir = Join-Path $repoRoot "build"
+$distRoot = Join-Path $repoRoot "dist"
 $distDir = Join-Path $repoRoot "dist\CrocDrop"
-if (Test-Path $distDir) {
-    for ($i = 0; $i -lt 3; $i++) {
-        try {
-            Remove-Item $distDir -Recurse -Force -ErrorAction Stop
-            break
-        }
-        catch {
-            Start-Sleep -Milliseconds 400
-            if ($i -eq 2) {
-                throw "Could not clean dist\CrocDrop. Close running app/windows using dist files and retry."
+$installerOutputDir = Join-Path $repoRoot "installer_output"
+$specPath = Join-Path $repoRoot "CrocDrop.spec"
+foreach ($path in @($buildDir, $distRoot, $installerOutputDir)) {
+    if (Test-Path $path) {
+        for ($i = 0; $i -lt 3; $i++) {
+            try {
+                Remove-Item $path -Recurse -Force -ErrorAction Stop
+                break
+            }
+            catch {
+                Start-Sleep -Milliseconds 400
+                if ($i -eq 2) {
+                    throw "Could not clean $path. Close running app/windows using build artifacts and retry."
+                }
             }
         }
     }
 }
 
-.\.venv\Scripts\python.exe -m PyInstaller --noconfirm --windowed --name CrocDrop --icon ".\installer\CrocDrop.ico" --add-data ".\assets;assets" main.py
+if (-not (Test-Path $specPath)) {
+    throw "Missing PyInstaller spec file: $specPath"
+}
+
+.\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean $specPath
 if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller failed with exit code $LASTEXITCODE."
 }

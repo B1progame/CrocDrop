@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -43,9 +44,9 @@ class LogService(QObject):
         self.logger.setLevel(logging.DEBUG if debug_enabled else logging.INFO)
         self.logger.handlers.clear()
 
-        file_handler = logging.FileHandler(self.log_file, encoding="utf-8")
-        file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s"))
-        self.logger.addHandler(file_handler)
+        file_handler = self._build_file_handler()
+        if file_handler is not None:
+            self.logger.addHandler(file_handler)
 
         qt_handler = QtLogHandler(self)
         qt_handler.setFormatter(logging.Formatter("%(message)s"))
@@ -62,6 +63,21 @@ class LogService(QObject):
 
     def get_logger(self, name: str) -> logging.Logger:
         return self.logger.getChild(name)
+
+    def get_log_file_path(self) -> Path:
+        return self.log_file
+
+    def _build_file_handler(self) -> logging.Handler | None:
+        candidate_paths = [self.log_file, self.log_dir / f"crocdrop-{os.getpid()}.log"]
+        for path in candidate_paths:
+            try:
+                handler = logging.FileHandler(path, encoding="utf-8")
+            except OSError:
+                continue
+            handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s"))
+            self.log_file = path
+            return handler
+        return None
 
     def clear_logs(self) -> None:
         for file in self.log_dir.glob("*.log"):

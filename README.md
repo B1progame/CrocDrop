@@ -68,13 +68,15 @@ python main.py
 python main.py --debug-peer
 ```
 
+Startup diagnostics are written to `%APPDATA%\CrocDrop\Logs\startup.log`. The log captures process context, bootstrap phases, main window show, and the deferred croc status check without interrupting the UI.
+
 ## Packaging (single app install target)
 
 Example with PyInstaller:
 
 ```powershell
 pip install pyinstaller
-pyinstaller --noconfirm --windowed --name CrocDrop main.py
+pyinstaller --noconfirm --clean CrocDrop.spec
 ```
 
 Distribute the generated `dist\CrocDrop` folder (or build an installer around it).
@@ -95,7 +97,7 @@ Manual flow:
 Automated flow (PowerShell):
 
 ```powershell
-.\installer\build_installer.ps1 -Version 1.1.1
+.\installer\build_installer.ps1 -Version 1.3.0
 ```
 
 ## Publish Release (No Manual Asset Upload)
@@ -108,7 +110,7 @@ Prerequisite:
 PowerShell:
 
 ```powershell
-.\installer\publish_release.ps1 -Version 1.1.1
+.\installer\publish_release.ps1 -Version 1.3.0
 ```
 
 Batch (uses version from `app/version.py` if omitted):

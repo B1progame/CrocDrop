@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -13,11 +14,12 @@ from PySide6.QtWidgets import (
 
 
 class ProfileDialog(QDialog):
-    def __init__(self, profiles: list[str]):
-        super().__init__()
+    def __init__(self, profiles: list[str], parent=None):
+        super().__init__(parent)
         self.setWindowTitle("CrocDrop Profile")
         self.setModal(True)
         self.resize(460, 220)
+        self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
 
         self.selected_profile: str = ""
         self.use_guest: bool = False

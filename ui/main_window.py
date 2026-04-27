@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 import math
+import time
 from pathlib import Path
 
 from PySide6.QtCore import (
     QByteArray,
+    QObject,
     Property,
     QEasingCurve,
     QEvent,
     QPropertyAnimation,
     QRect,
     QRectF,
+    QThread,
     QSize,
     QSignalBlocker,
+    Signal,
+    Slot,
     QTimer,
     Qt,
     QVariantAnimation,
@@ -114,11 +119,37 @@ class SidebarActiveIndicator(QWidget):
         painter.drawRoundedRect(rect, self._radius, self._radius)
 
 
+class CrocCheckWorker(QObject):
+    finished = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, croc_manager):
+        super().__init__()
+        self.croc_manager = croc_manager
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            info = self.croc_manager.detect_binary()
+        except Exception as exc:
+            self.failed.emit(str(exc))
+            return
+        self.finished.emit(info)
+
+
 class MainWindow(QMainWindow):
     def __init__(self, context, debug_peer: bool = False):
         super().__init__()
         self.context = context
+        self.startup_diagnostics = getattr(self.context, "startup_diagnostics", None)
+        self._log_startup("mainwindow.init.start", debug_peer=bool(debug_peer))
         self.debug_enabled = bool(self.context.settings_service.get().debug_mode or debug_peer)
+        self._startup_window = None
+        self._startup_show_handled = False
+        self._croc_check_thread: QThread | None = None
+        self._croc_check_worker: CrocCheckWorker | None = None
+        self._croc_check_started_at = 0.0
+        self._croc_check_reason = ""
         self.logo_path = Path(__file__).resolve().parents[1] / "assets" / "crocdrop_lock_logo.svg"
         self.icon_dir = Path(__file__).resolve().parents[1] / "assets" / "icons"
         self._nav_icon_names: dict[str, str] = {
@@ -232,15 +263,15 @@ class MainWindow(QMainWindow):
         header_layout.setSpacing(10)
         self.header_title = QLabel("Home")
         self.header_title.setObjectName("HeaderTitle")
-        self.context_label = QLabel("Ready")
+        self.context_label = QLabel("Starting up...")
         self.context_label.setObjectName("HeaderStatus")
 
-        check_btn = QPushButton("Check Croc")
-        check_btn.clicked.connect(self.check_croc)
+        self.check_btn = QPushButton("Check Croc")
+        self.check_btn.clicked.connect(self.check_croc)
         header_layout.addWidget(self.header_title)
         header_layout.addStretch(1)
         header_layout.addWidget(self.context_label)
-        header_layout.addWidget(check_btn)
+        header_layout.addWidget(self.check_btn)
 
         self.pages = QStackedWidget()
         self.home_page = HomePage(context)
@@ -313,7 +344,44 @@ class MainWindow(QMainWindow):
         self.context.transfer_service.transfer_finished.connect(self.on_transfer_finished)
 
         self.navigate_to("Home", animated=False)
-        self.check_croc()
+        self._log_startup("mainwindow.init.end")
+
+    def attach_startup_window(self, startup_window) -> None:
+        self._startup_window = startup_window
+
+    def begin_initial_show(self) -> None:
+        QTimer.singleShot(0, self._show_after_startup)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._startup_show_handled:
+            return
+        self._startup_show_handled = True
+        self._log_startup("mainwindow.show")
+        QTimer.singleShot(120, lambda: self._start_croc_check("startup"))
+
+    def closeEvent(self, event) -> None:
+        self._cleanup_croc_check()
+        super().closeEvent(event)
+
+    def _show_after_startup(self) -> None:
+        if self._startup_window is not None:
+            try:
+                self._startup_window.set_status("Ready", progress=100)
+                QApplication.processEvents()
+                self._startup_window.close()
+            except Exception:
+                pass
+            self._startup_window = None
+        self._log_startup("startup.transition.complete")
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def _log_startup(self, phase: str, **fields) -> None:
+        if self.startup_diagnostics is None:
+            return
+        self.startup_diagnostics.log_phase(phase, **fields)
 
     def eventFilter(self, watched, event):
         if not hasattr(self, "nav_indicator"):
@@ -448,7 +516,6 @@ class MainWindow(QMainWindow):
 
     def _update_page_chrome(self, name: str):
         self.header_title.setText(name or "CrocDrop")
-        self.context_label.setText(name or "Ready")
         if name == "Home":
             self.home_page.refresh()
         elif name == "Transfers":
@@ -705,8 +772,72 @@ class MainWindow(QMainWindow):
         )
 
     def check_croc(self):
-        info = self.context.croc_manager.detect_binary()
+        self._start_croc_check("manual")
+
+    def _start_croc_check(self, reason: str) -> None:
+        if self._croc_check_thread is not None:
+            return
+
+        self._croc_check_reason = reason
+        self._croc_check_started_at = time.perf_counter()
+        self.context_label.setText("Checking croc...")
+        self.check_btn.setEnabled(False)
+        self._log_startup("check_croc.start", reason=reason)
+
+        thread = QThread(self)
+        worker = CrocCheckWorker(self.context.croc_manager)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._on_croc_check_finished)
+        worker.failed.connect(self._on_croc_check_failed)
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(self._on_croc_check_thread_finished)
+
+        self._croc_check_thread = thread
+        self._croc_check_worker = worker
+        thread.start()
+
+    def _on_croc_check_finished(self, info) -> None:
+        elapsed_ms = int((time.perf_counter() - self._croc_check_started_at) * 1000)
         self.context_label.setText(f"{info.source} | {info.version or 'missing'}")
+        self._log_startup(
+            "check_croc.end",
+            reason=self._croc_check_reason,
+            source=info.source,
+            version=info.version or "missing",
+            elapsed_ms=elapsed_ms,
+        )
+
+    def _on_croc_check_failed(self, message: str) -> None:
+        elapsed_ms = int((time.perf_counter() - self._croc_check_started_at) * 1000)
+        self.context_label.setText("croc check failed")
+        self._log_startup(
+            "check_croc.failed",
+            reason=self._croc_check_reason,
+            elapsed_ms=elapsed_ms,
+            error=message,
+        )
+
+    def _on_croc_check_thread_finished(self) -> None:
+        self.check_btn.setEnabled(True)
+        if self._croc_check_thread is not None:
+            self._croc_check_thread.deleteLater()
+        self._croc_check_thread = None
+        self._croc_check_worker = None
+        self._croc_check_reason = ""
+        self._croc_check_started_at = 0.0
+
+    def _cleanup_croc_check(self) -> None:
+        if self._croc_check_thread is None:
+            return
+        self._croc_check_thread.quit()
+        self._croc_check_thread.wait(1500)
+        if self._croc_check_thread is not None:
+            self._croc_check_thread.deleteLater()
+        self._croc_check_thread = None
+        self._croc_check_worker = None
 
     def on_transfer_finished(self, transfer_id: str, status: str):
         if status != "completed":
